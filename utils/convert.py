@@ -1,7 +1,79 @@
 import numpy as np
 
-
 def lidar_to_pano_with_intensities(
+    local_points_with_intensities: np.ndarray,
+    lidar_H: int,
+    lidar_W: int,
+    lidar_K: int,
+    max_depth=80,
+):
+    """
+    Vectorized conversion of lidar frame to pano frame with intensities.
+    Lidar points are in local coordinates.
+
+    Args:
+        local_points: (N, 4), float32, in lidar frame, with intensities.
+        lidar_H: pano height.
+        lidar_W: pano width.
+        lidar_K: lidar intrinsics.
+        max_depth: max depth in meters.
+
+    Return:
+        pano: (H, W), float32.
+        intensities: (H, W), float32.
+    """
+    # Unpack lidar intrinsics
+    local_points = local_points_with_intensities[:, :3]
+    local_point_intensities = local_points_with_intensities[:, 3]
+    fov_up, fov = lidar_K
+    fov_down = fov - fov_up
+
+ 
+
+    # Filter out points beyond max depth
+
+    # Extract coordinates
+    x = local_points[:, 0]
+    y = local_points[:, 1]
+    z = local_points[:, 2] - 0.202
+       # Compute distances to the lidar center
+    dists = np.linalg.norm(local_points, axis=1)
+
+
+    valid_mask = dists < max_depth
+    local_points = local_points[valid_mask]
+    local_point_intensities = local_point_intensities[valid_mask]
+    dists = dists[valid_mask]
+
+    # Compute spherical angles
+    beta = np.pi - np.arctan2(y, x)
+    alpha = np.arctan2(z, np.sqrt(x**2 + y**2)) + fov_down / 180 * np.pi
+
+    # Compute row and column indices
+    c = (beta / (2 * np.pi / lidar_W)).astype(int)
+    r = (lidar_H - alpha / (fov / 180 * np.pi / lidar_H)).astype(int)
+
+    # Clip row and column indices to be within bounds
+    c = np.clip(c, 0, lidar_W - 1)
+    r = np.clip(r, 0, lidar_H - 1)
+
+    # Initialize pano and intensity maps
+    pano = np.zeros((lidar_H, lidar_W), dtype=np.float32)
+    intensities = np.zeros((lidar_H, lidar_W), dtype=np.float32)
+
+    
+    for x,y, i in zip(c, r, range(len(c))):
+        if pano[y,x] == 0:
+            pano[y,x] =dists[i]
+            intensities[y,x] = local_point_intensities[i]
+        elif pano[y,x] < dists[i]:
+            pano[y,x] = dists[i]
+            intensities[y,x] = local_point_intensities[i]
+
+
+    return pano, intensities
+
+def lidar_to_pano_with_intensities_loop(
     local_points_with_intensities: np.ndarray,
     lidar_H: int,
     lidar_W: int,
@@ -109,6 +181,7 @@ def pano_to_lidar_with_intensities(pano: np.ndarray, intensities, lidar_K):
     fov_up, fov = lidar_K
 
     H, W = pano.shape
+    H= H#//2
     i, j = np.meshgrid(
         np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32), indexing="xy"
     )
@@ -122,6 +195,20 @@ def pano_to_lidar_with_intensities(pano: np.ndarray, intensities, lidar_K):
         ],
         -1,
     )
+    '''
+    alpha = (fov_up2 - j / H * fov2) / 180 * np.pi
+    dirs2 = np.stack(
+        [
+            np.cos(alpha) * np.cos(beta),
+            np.cos(alpha) * np.sin(beta),
+            np.sin(alpha),
+        ],
+        -1,
+    )
+    dirs = np.concatenate([dirs, dirs2], axis=0)
+
+    H = H*2
+    '''
     local_points = dirs * pano.reshape(H, W, 1)
 
     # local_points: (H, W, 3)

@@ -65,6 +65,7 @@ def get_arg_parser():
     parser.add_argument("--shift_z", type=float, default=0.0, help="translation on z direction (m)")
     parser.add_argument("--align_axis", action="store_true", help="align shift axis to vehicle motion direction.")
     parser.add_argument("--kitti2nus", action="store_true", help="a simple demo to change lidar configuration from kitti360 to nuscenes.")
+    parser.add_argument("--shift_z_bottom", type=float, default=0.0, help="translation on z direction (m) for bottom lidar")
 
     return parser
 
@@ -136,7 +137,7 @@ def _get_lidar_rays(sequence_id, opt, device):
 
     # Get directions based on H, W and fov_lidar
     B = poses.shape[0]
-    H = opt.H_lidar
+    H = opt.H_lidar#//2
     W = opt.W_lidar
 
     i, j = custom_meshgrid(
@@ -158,10 +159,26 @@ def _get_lidar_rays(sequence_id, opt, device):
         ],
         -1,
     )
+    '''
+    alpha = (fov_up2 - j / H * fov2) / 180 * np.pi
 
+    directions_bot = torch.stack(
+        [
+            torch.cos(alpha) * torch.cos(beta),
+            torch.cos(alpha) * torch.sin(beta),
+            torch.sin(alpha),
+        ],
+        -1,
+    )
+
+    directions = torch.cat([directions, directions_bot], dim=1)
+    '''
     rays_d = directions @ poses[:, :3, :3].transpose(-1, -2)  # (B, N, 3)
     rays_o = poses[..., :3, 3]  # [B, 3]
+    #TODO_C support offset
     rays_o = rays_o[..., None, :].expand_as(rays_d)  # [B, N, 3]
+    #get top half of the lidar
+
 
     times_lidar = []
     for frame in frame_ids:
@@ -269,7 +286,14 @@ def main():
 
         rays_o_shift[i,:,0] = rays_o_shift[i,:,0] + shift_x * scale
         rays_o_shift[i,:,1] = rays_o_shift[i,:,1] + shift_y * scale
-        rays_o_shift[i,:,2] = rays_o_shift[i,:,2] + shift_z * scale
+
+        #top half is 0 to H/2 * W 
+        #top indices 
+        top_indices = torch.arange(0, opt.H_lidar//2 * opt.W_lidar).to(device)
+        bot_indices = torch.arange(opt.H_lidar//2 * opt.W_lidar, opt.H_lidar * opt.W_lidar).to(device)
+        #rays_o_shift[i,:,2] = rays_o_shift[i,:,2] + shift_z * scale
+        #rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] + shift_z * scale
+        #rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] + opt.shift_z_bottom * scale
 
     # save results
     sim.render(rays_o_shift, rays_d, times_lidar)

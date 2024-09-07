@@ -1,5 +1,6 @@
 import os
 import argparse
+import cv2
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -68,6 +69,11 @@ def generate_train_data(
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
+        #save first channel as iamge with cv2
+        cv2.imwrite(out_dir / frame_name.replace("npy", "png"), pano[:, :, 1]*255)
+        png_frame_name = frame_name.replace("npy", "png")
+        print(f"Saved pic {out_dir / png_frame_name}")
+        exit()
 
 
 def create_kitti_rangeview(frame_start, frame_end):
@@ -77,9 +83,12 @@ def create_kitti_rangeview(frame_start, frame_end):
     out_dir = kitti_360_parent_dir / "train"
     sequence_name = "2013_05_28_drive_0000"
 
-    H = 66
-    W = 1030
-    intrinsics = (2.0, 26.9)  # fov_up, fov
+    #H = 66
+    #W = 1030
+    #intrinsics = (2.0, 26.9)  # fov_up, fov
+    H=32
+    W=2048
+    intrinsics = (2.02984126984, 22.063492063492063/2)  # fov_up, fov
 
     frame_ids = list(range(frame_start, frame_end + 1))
 
