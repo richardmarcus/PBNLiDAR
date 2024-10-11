@@ -131,17 +131,9 @@ class Simulator(object):
                 pred_raydrop = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
                 pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
             raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
-<<<<<<< HEAD
 
             #pred_intensity = pred_intensity * raydrop_mask
             #pred_depth = pred_depth * raydrop_mask
-=======
-            #set raydrop_mask to 1 for all pixels
-            #TODO_C raydrop
-            #raydrop_mask = torch.ones_like(raydrop_mask)
-            pred_intensity = pred_intensity * raydrop_mask
-            pred_depth = pred_depth * raydrop_mask
->>>>>>> 5ba63e4059853778cee7bf3800de2db2600b82a7
 
             pred_raydrop = pred_raydrop[0].detach().cpu().numpy()
             pred_depth = pred_depth[0].detach().cpu().numpy()
