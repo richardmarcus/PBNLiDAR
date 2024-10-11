@@ -57,15 +57,17 @@ def get_arg_parser():
     parser.add_argument("--use_refine", type=bool, default=True, help="use ray-drop refinement")
 
     ### simulation
-    parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
+    parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 13.45, -11.45, 13.45], help="fov up and fov range of lidar")
     parser.add_argument("--H_lidar", type=int, default=66, help="height of lidar range map")
     parser.add_argument("--W_lidar", type=int, default=1030, help="width of lidar range map")
     parser.add_argument("--shift_x", type=float, default=0.0, help="translation on x direction (m)")
     parser.add_argument("--shift_y", type=float, default=0.0, help="translation on y direction (m)")
     parser.add_argument("--shift_z", type=float, default=0.0, help="translation on z direction (m)")
+    parser.add_argument("--shift_z_bottom", type=float, default=0.0, help="translation on z direction (m) for bottom lidar")
+    parser.add_argument("--shift_z_top", type=float, default=0.0, help="translation on z direction (m) for top lidar")
     parser.add_argument("--align_axis", action="store_true", help="align shift axis to vehicle motion direction.")
     parser.add_argument("--kitti2nus", action="store_true", help="a simple demo to change lidar configuration from kitti360 to nuscenes.")
-    parser.add_argument("--shift_z_bottom", type=float, default=0.0, help="translation on z direction (m) for bottom lidar")
+    parser.add_argument("--interpolation_factor", type=float, default=0.0, help="interpolation factor for lidar2world")
 
     return parser
 
@@ -116,7 +118,7 @@ def _get_frame_ids(sequence_id):
     return s_frame_id, e_frame_id
 
 
-def _get_lidar_rays(sequence_id, opt, device):
+def _get_lidar_rays(sequence_id, opt, device, interpolation):
     # For KITTI-360
     kitti_360_root = Path(opt.path) / "KITTI-360"
     sequence_name = "2013_05_28_drive_0000"
@@ -128,7 +130,7 @@ def _get_lidar_rays(sequence_id, opt, device):
     k3 = KITTI360Loader(kitti_360_root)
 
     # Get lidar2world.
-    lidar2world = k3.load_lidars(sequence_name, frame_ids)
+    lidar2world = k3.load_lidars(sequence_name, frame_ids, interpolation)
 
     # Offset and scale
     poses = np.stack(lidar2world, axis=0)
@@ -137,7 +139,7 @@ def _get_lidar_rays(sequence_id, opt, device):
 
     # Get directions based on H, W and fov_lidar
     B = poses.shape[0]
-    H = opt.H_lidar#//2
+    H = opt.H_lidar//2
     W = opt.W_lidar
 
     i, j = custom_meshgrid(
@@ -147,8 +149,9 @@ def _get_lidar_rays(sequence_id, opt, device):
     i = i.t().reshape([1, H * W]).expand([B, H * W])
     j = j.t().reshape([1, H * W]).expand([B, H * W])
 
-    fov_up, fov = opt.fov_lidar
+    fov_up, fov, fov_up2, fov2= opt.fov_lidar
     beta = -(i - W / 2) / W * 2 * np.pi
+
     alpha = (fov_up - j / H * fov) / 180 * np.pi
 
     directions = torch.stack(
@@ -159,10 +162,9 @@ def _get_lidar_rays(sequence_id, opt, device):
         ],
         -1,
     )
-    '''
+    #print min max of alpha
     alpha = (fov_up2 - j / H * fov2) / 180 * np.pi
-
-    directions_bot = torch.stack(
+    directions_bottom = torch.stack(
         [
             torch.cos(alpha) * torch.cos(beta),
             torch.cos(alpha) * torch.sin(beta),
@@ -171,14 +173,17 @@ def _get_lidar_rays(sequence_id, opt, device):
         -1,
     )
 
-    directions = torch.cat([directions, directions_bot], dim=1)
-    '''
+
+    #concatenate top and bottom lidar
+    directions = torch.cat([directions, directions_bottom], dim=1)
+
     rays_d = directions @ poses[:, :3, :3].transpose(-1, -2)  # (B, N, 3)
     rays_o = poses[..., :3, 3]  # [B, 3]
-    #TODO_C support offset
     rays_o = rays_o[..., None, :].expand_as(rays_d)  # [B, N, 3]
-    #get top half of the lidar
 
+    #already done in main()
+    #rays_o[:H*W, 2] += opt.shift_z
+    #rays_o[H*W:, 2] += opt.shift_z_bottom
 
     times_lidar = []
     for frame in frame_ids:
@@ -255,7 +260,11 @@ def main():
     sequence_id = opt.sequence_id
 
     # simulate novel configuration (e.g., fov_lidar, H_lidar, W_lidar)
-    rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device)
+    if opt.interpolation_factor > 0:
+        interpolation = opt.interpolation_factor
+    else:
+        interpolation = None
+    rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation)
 
     # # simulate novel trajectory (global)
     # rays_o_shift = rays_o.clone()
@@ -286,14 +295,11 @@ def main():
 
         rays_o_shift[i,:,0] = rays_o_shift[i,:,0] + shift_x * scale
         rays_o_shift[i,:,1] = rays_o_shift[i,:,1] + shift_y * scale
-
-        #top half is 0 to H/2 * W 
-        #top indices 
+        rays_o_shift[i,:,2] = rays_o_shift[i,:,2] + shift_z * scale
         top_indices = torch.arange(0, opt.H_lidar//2 * opt.W_lidar).to(device)
         bot_indices = torch.arange(opt.H_lidar//2 * opt.W_lidar, opt.H_lidar * opt.W_lidar).to(device)
-        #rays_o_shift[i,:,2] = rays_o_shift[i,:,2] + shift_z * scale
-        #rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] + shift_z * scale
-        #rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] + opt.shift_z_bottom * scale
+        rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] - opt.shift_z_top * scale
+        rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] - opt.shift_z_bottom* scale
 
     # save results
     sim.render(rays_o_shift, rays_d, times_lidar)
