@@ -23,6 +23,7 @@ class KITTI360Dataset(BaseDataset):
     patch_size_lidar: int = 1  # size of the image to extract from the Lidar.
     num_rays_lidar: int = 4096
     fov_lidar: list = field(default_factory=list)  # fov_up, fov [2.0, 26.9]
+    z_offsets: list = field(default_factory=list)  # z_offset, z_offset_bot
 
     def __post_init__(self):
         if self.sequence_id == "1538":
@@ -99,6 +100,8 @@ class KITTI360Dataset(BaseDataset):
             self.H_lidar = int(transform["h_lidar"])
             self.W_lidar = int(transform["w_lidar"])
 
+        #self.z_offsets = [float(transform["z_offset"]), float(transform["z_offset_bot"])]
+
         # read images
         frames = transform["frames"]
         frames = sorted(frames, key=lambda d: d['lidar_file_path'])
@@ -160,9 +163,15 @@ class KITTI360Dataset(BaseDataset):
             self.intrinsics_lidar,
             self.H_lidar,
             self.W_lidar,
+            self.z_offsets,
             self.num_rays_lidar,
             self.patch_size_lidar,
+            self.scale
+            
         )
+        #print shape of rays_lidar
+        #print(rays_lidar["rays_o"].shape,self.H_lidar*self.W_lidar)
+
         time_lidar = self.times[index].to(self.device) # [B, 1]
 
         images_lidar = self.images_lidar[index].to(self.device)  # [B, H, W, 3]

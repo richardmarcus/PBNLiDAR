@@ -1,6 +1,6 @@
 #! /bin/bash
 DATASET="kitti360"
-SEQ_ID="4950"
+SEQ_ID="3353"
 
 python -m data.preprocess.generate_rangeview --dataset $DATASET --sequence_id $SEQ_ID
 

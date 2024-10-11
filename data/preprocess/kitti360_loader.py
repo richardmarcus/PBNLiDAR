@@ -60,7 +60,7 @@ class KITTI360Loader:
 
         return mat
 
-    def _load_all_lidars(self, sequence_name):
+    def _load_all_lidars(self, sequence_name, interpolation = None):
         """
         Args:
             sequence_name: str, name of sequence. e.g. "2013_05_28_drive_0000".
@@ -71,8 +71,13 @@ class KITTI360Loader:
         data_poses_dir = self.data_poses_dir / f"{sequence_name}_sync"
         assert data_poses_dir.is_dir()
 
+        if interpolation is not None:
+            pose_str = f"poses_{interpolation}.txt"
+        else:
+            pose_str = "poses.txt"
+
         # IMU to world transformation (poses.txt).
-        poses_path = data_poses_dir / "poses.txt"
+        poses_path = data_poses_dir / pose_str
         imu_to_world_dict = dict()
         frame_ids = []
         for line in np.loadtxt(poses_path):
@@ -105,7 +110,7 @@ class KITTI360Loader:
 
         return velo_to_world_dict
 
-    def load_lidars(self, sequence_name, frame_ids):
+    def load_lidars(self, sequence_name, frame_ids, interpolation):
         """
         Args:
             sequence_name: str, name of sequence. e.g. "2013_05_28_drive_0000".
@@ -114,7 +119,7 @@ class KITTI360Loader:
         Returns:
             velo_to_worlds
         """
-        velo_to_world_dict = self._load_all_lidars(sequence_name)
+        velo_to_world_dict = self._load_all_lidars(sequence_name, interpolation)
         # velo_to_worlds = [velo_to_world_dict[frame_id] for frame_id in frame_ids]
         velo_to_worlds = []
         for frame_id in frame_ids:

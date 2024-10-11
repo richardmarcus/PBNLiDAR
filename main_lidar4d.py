@@ -35,6 +35,7 @@ def get_arg_parser():
     parser.add_argument("--bound", type=float, default=1, help="assume the scene is bounded in box[-bound, bound]^3")
     parser.add_argument("--scale", type=float, default=0.01, help="scale lidar location into box[-bound, bound]^3")
     parser.add_argument("--offset", type=float, nargs="*", default=[0, 0, 0], help="offset of lidar location")
+    parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
     parser.add_argument("--near_lidar", type=float, default=1.0, help="minimum near distance for lidar")
     parser.add_argument("--far_lidar", type=float, default=81.0, help="maximum far distance for lidar")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
@@ -108,6 +109,10 @@ def main():
     parser = get_arg_parser()
     opt = parser.parse_args()
     set_seed(opt.seed)
+    torch.cuda.empty_cache() 
+    import os
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
+
 
     # Check sequence id.
     kitti360_sequence_ids = [
@@ -200,7 +205,7 @@ def main():
         RaydropMeter(ratio=opt.raydrop_ratio),
         IntensityMeter(scale=opt.intensity_scale),
         DepthMeter(scale=opt.scale),
-        PointsMeter(scale=opt.scale, intrinsics=opt.fov_lidar),
+        PointsMeter(scale=opt.scale, intrinsics=opt.fov_lidar, z_offsets=opt.z_offsets),
     ]
 
     if opt.test or opt.test_eval or opt.refine:
@@ -214,6 +219,7 @@ def main():
             fp16=opt.fp16,
             lidar_metrics=lidar_metrics,
             use_checkpoint=opt.ckpt,
+            z_offsets=opt.z_offsets,
         )
 
         if opt.refine: # optimize raydrop only
@@ -229,6 +235,7 @@ def main():
                 patch_size_lidar=opt.patch_size_lidar,
                 num_rays_lidar=opt.num_rays_lidar,
                 fov_lidar=opt.fov_lidar,
+                z_offsets=opt.z_offsets,
             ).dataloader()
             trainer.refine(refine_loader)
 
@@ -244,6 +251,7 @@ def main():
             patch_size_lidar=opt.patch_size_lidar,
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
         ).dataloader()
 
         if test_loader.has_gt and not opt.test:
@@ -264,6 +272,7 @@ def main():
             patch_size_lidar=opt.patch_size_lidar,
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
         ).dataloader()
 
         valid_loader = NeRFDataset(
@@ -278,6 +287,7 @@ def main():
             patch_size_lidar=opt.patch_size_lidar,
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets
         ).dataloader()
 
         # optimize raydrop
@@ -293,6 +303,7 @@ def main():
             patch_size_lidar=opt.patch_size_lidar,
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
         ).dataloader()
 
         optimizer = lambda model: torch.optim.Adam(
@@ -338,6 +349,7 @@ def main():
             patch_size_lidar=opt.patch_size_lidar,
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
         ).dataloader()
 
         if test_loader.has_gt:

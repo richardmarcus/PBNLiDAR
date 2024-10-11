@@ -26,14 +26,14 @@ def get_arg_parser():
 
 
 def cal_centerpose_bound_scale(
-    lidar_rangeview_paths, lidar2worlds, fov_lidar, bound=1.0
+    lidar_rangeview_paths, lidar2worlds, fov_lidar, bound=1.0, z_offsets=[0, 0]
 ):
     near = 200
     far = 0
     points_world_list = []
     for i, lidar_rangeview_path in enumerate(lidar_rangeview_paths):
         pano = np.load(lidar_rangeview_path)
-        point_cloud = pano_to_lidar(pano=pano[:, :, 2], lidar_K=fov_lidar)
+        point_cloud = pano_to_lidar(pano=pano[:, :, 2], lidar_K=fov_lidar, z_offsets=z_offsets)
         point_cloud = np.concatenate(
             [point_cloud, np.ones(point_cloud.shape[0]).reshape(-1, 1)], -1
         )
@@ -61,9 +61,9 @@ def cal_centerpose_bound_scale(
         np.max(pc_all_w_centered[:, 1]),
         np.max(pc_all_w_centered[:, 2]),
     ]
+
     scale = bound / np.max(bound_ori)
-    print("scale: ", scale)
-    
+    print("scale: ", scale)    
     return scale, centerpose
 
 
@@ -96,9 +96,11 @@ def main():
     lidar_rangeview_paths, lidar2worlds, num_frames = get_path_pose_from_json(
         root_path, sequence_id=sequence_id
     )
-    fov_lidar = [2.0, 26.9]  # fov_up, fov
+    #fov_lidar = [2.0, 26.9]  # fov_up, fov
+    fov_lidar = (2.02984126984, 11.0317460317, -8.799812, 16.541)
+    z_offsets = [-0.202, -0.121]
 
-    scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar)
+    scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets=z_offsets)
 
     config_path = f"configs/{args.dataset}_{args.sequence_id}.txt"
     with open(config_path, "w") as f:
