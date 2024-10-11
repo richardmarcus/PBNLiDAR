@@ -129,8 +129,14 @@ def point_removal(pc_raw):
     pc_rm = range_filter(pc_raw)
 
     pcd_rm = o3d.geometry.PointCloud()
+
     pcd_rm.points = o3d.utility.Vector3dVector(pc_rm[:,:3])
+
     pcd_rm, ind = pcd_rm.remove_statistical_outlier(64, 3.0)
+
+
+
+
     pc_rm = np.asarray(pcd_rm.points)
     
     indices, _ = my_ransac(pc_rm[:, :3], distance_threshold=0.15)
@@ -149,6 +155,10 @@ def point_removal(pc_raw):
     pcd_rm = o3d.geometry.PointCloud()
     pcd_rm.points = o3d.utility.Vector3dVector(pc_rm[:,:3])
     pcd_rm, ind = pcd_rm.remove_statistical_outlier(64, 3.0)
+
+    #o3d.visualization.draw_geometries([pcd_rm])
+
+
     pc_rm = np.asarray(pcd_rm.points)
 
     return pc_rm, pc_ground

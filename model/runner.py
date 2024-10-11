@@ -630,10 +630,21 @@ class Trainer(object):
                 img_depth_masked = (pred_depth * preds_mask * 255).astype(np.uint8)
                 img_depth_masked = cv2.applyColorMap(img_depth_masked, 20)
 
-                img_pred = cv2.vconcat([img_raydrop, img_intensity, img_depth, 
-                                        img_raydrop_masked, img_intensity_masked, img_depth_masked])
+                #img_pred = cv2.vconcat([img_raydrop, img_intensity, img_depth, 
+                #                        img_raydrop_masked, img_intensity_masked, #img_depth_masked])
+
+                img_raydrop_gt = (gt_raydrop[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_raydrop_gt = cv2.cvtColor(img_raydrop_gt, cv2.COLOR_GRAY2BGR)
+                img_intensity_gt = (gt_intensity[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_intensity_gt = cv2.applyColorMap(img_intensity_gt, 1)
+                img_depth_gt = (gt_depth[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_depth_gt = cv2.applyColorMap(img_depth_gt, 20)
+
+                img_gt = cv2.vconcat([img_raydrop, img_intensity, img_depth,
+                                      img_raydrop_gt, img_intensity_gt, img_depth_gt])
+
                 
-                cv2.imwrite(save_path_pred, img_pred)
+                cv2.imwrite(save_path_pred, img_gt)
                 
                 ## save point clouds
                 # pred_lidar = pano_to_lidar(
@@ -688,6 +699,7 @@ class Trainer(object):
             summary_path = os.path.join(self.workspace, "run", self.name)
             self.writer = tensorboardX.SummaryWriter(summary_path)
 
+        print("flow_loss", self.opt.flow_loss)
         if self.opt.flow_loss:
             self.process_pointcloud(refine_loader)
 
@@ -762,8 +774,9 @@ class Trainer(object):
                 pred_intensity = (pred_intensity * 255).astype(np.uint8)
 
                 pred_depth = preds_depth[0].detach().cpu().numpy()
+
                 pred_lidar = pano_to_lidar(
-                    pred_depth / self.opt.scale, loader._data.intrinsics_lidar
+                    pred_depth / self.opt.scale, loader._data.intrinsics_lidar, self.opt.z_offsets
                 )
 
                 np.save(
@@ -866,7 +879,7 @@ class Trainer(object):
 
         loss_total = []
 
-        refine_bs = None # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
+        refine_bs = 32 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
         refine_epoch = 1000
 
         optimizer = torch.optim.Adam(self.model.unet.parameters(), lr=0.001, weight_decay=0)
@@ -932,7 +945,8 @@ class Trainer(object):
             gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
             gt_lidar = pano_to_lidar(
                 gt_depth.squeeze(0).clone().detach().cpu().numpy() / self.opt.scale, 
-                loader._data.intrinsics_lidar
+                loader._data.intrinsics_lidar,
+                z_offsets = self.opt.z_offsets
             )
             # remove ground
             points, ground = point_removal(gt_lidar)

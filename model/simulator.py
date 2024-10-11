@@ -131,14 +131,17 @@ class Simulator(object):
                 pred_raydrop = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
                 pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
             raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
-            pred_intensity = pred_intensity * raydrop_mask
-            pred_depth = pred_depth * raydrop_mask
+
+            #pred_intensity = pred_intensity * raydrop_mask
+            #pred_depth = pred_depth * raydrop_mask
 
             pred_raydrop = pred_raydrop[0].detach().cpu().numpy()
             pred_depth = pred_depth[0].detach().cpu().numpy()
             pred_intensity = pred_intensity[0].detach().cpu().numpy()
+            #z_offsets from opt.z_offset and opt.z_offset_bottom
+            z_offsets = [self.opt.shift_z, self.opt.shift_z_bottom]
             pred_lidar = pano_to_lidar_with_intensities(
-                pred_depth / self.opt.scale, pred_intensity, self.opt.fov_lidar
+                pred_depth / self.opt.scale, pred_intensity, self.opt.fov_lidar, z_offsets
             )
 
             if save_pc:
@@ -169,7 +172,6 @@ class Simulator(object):
 
                 img_pred = cv2.vconcat([img_raydrop, img_intensity, img_depth])
                 cv2.imwrite(save_path, img_pred)
-            
             if save_video:
                 img_pred = cv2.cvtColor(img_pred, cv2.COLOR_BGR2RGB)
                 all_preds.append(img_pred)

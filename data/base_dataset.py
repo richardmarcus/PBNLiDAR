@@ -13,13 +13,13 @@ def custom_meshgrid(*args):
 
 
 @torch.cuda.amp.autocast(enabled=False)
-def get_lidar_rays(poses, intrinsics, H, W, N=-1, patch_size=1):
+def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, patch_size=1, scale = 0.01):
     """
     Get lidar rays.
 
     Args:
         poses: [B, 4, 4], cam2world
-        intrinsics: [2]
+        intrinsics: [4]
         H, W, N: int
     Returns:
         rays_o, rays_d: [B, N, 3]
@@ -27,7 +27,6 @@ def get_lidar_rays(poses, intrinsics, H, W, N=-1, patch_size=1):
     """
     device = poses.device
     B = poses.shape[0]
-
     i, j = custom_meshgrid(
         torch.linspace(0, W - 1, W, device=device),
         torch.linspace(0, H - 1, H, device=device),
@@ -79,9 +78,26 @@ def get_lidar_rays(poses, intrinsics, H, W, N=-1, patch_size=1):
         inds = torch.arange(H * W, device=device).expand([B, H * W])
         results["inds"] = inds
 
-    fov_up, fov = intrinsics
+    fov_up, fov, fov_up2, fov2 = intrinsics
+
     beta = -(i - W / 2) / W * 2 * np.pi
-    alpha = (fov_up - j / H * fov) / 180 * np.pi
+
+    top_mask = j < (H // 2) 
+
+
+    alpha = torch.zeros_like(j)
+
+
+
+    alpha_top = (fov_up - j[top_mask] / (H//2) * fov) / 180 * np.pi
+    alpha_bot = (fov_up2 - (j[~top_mask]-32) / (H//2)* fov2) / 180 * np.pi
+
+    alpha[top_mask] = alpha_top
+    alpha[~top_mask] = alpha_bot
+
+
+
+    #alpha lower is second 50% of the image
 
     directions = torch.stack(
         [
@@ -91,11 +107,56 @@ def get_lidar_rays(poses, intrinsics, H, W, N=-1, patch_size=1):
         ],
         -1,
     )
+
+    ''' 
+    j_bot = j[:, W*H//2:]
+    i_bot = i[:, W*H//2:]
+    j = j[:, :W*H//2]
+    i = i[:, :W*H//2]
+    beta = -(i - W / 2) / W * 2 * np.pi
+    alpha = (fov_up - j / H//2* fov) / 180 * np.pi
+    #alpha lower is second 50% of the image
+
+    directions = torch.stack(
+        [
+            torch.cos(alpha) * torch.cos(beta),
+            torch.cos(alpha) * torch.sin(beta),
+            torch.sin(alpha),
+        ],
+        -1,
+    )
+    beta = -(i_bot - W / 2) / W * 2 * np.pi
+    alpha = (fov_up2 - j_bot / H//2* fov2) / 180 * np.pi
+    directions_bottom = torch.stack(
+        [
+            torch.cos(alpha) * torch.cos(beta),
+            torch.cos(alpha) * torch.sin(beta),
+            torch.sin(alpha),
+        ],
+        -1,
+    )
+    #print dir and dir bot shapes
+    directions = torch.cat([directions, directions_bottom], dim=1)
     # directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+    '''
     rays_d = directions @ poses[:, :3, :3].transpose(-1, -2)  # (B, N, 3)
     rays_o = poses[..., :3, 3]  # [B, 3]
-    rays_o = rays_o[..., None, :].expand_as(rays_d)  # [B, N, 3]
 
+    rays_o = rays_o[:, None, :].expand_as(rays_d)  # [B, N, 3]
+
+
+    rays_o_top = rays_o[top_mask]
+    rays_o_top[:,2] -= z_offsets[0] * scale
+
+    rays_o_bot = rays_o[~top_mask]
+    rays_o_bot[:,2] -= z_offsets[1] * scale
+
+    rays_shifted = torch.zeros_like(rays_o)
+    rays_shifted[top_mask] = rays_o_top
+    rays_shifted[~top_mask] = rays_o_bot
+    rays_o = rays_shifted
+ 
+   
     results["rays_o"] = rays_o
     results["rays_d"] = rays_d
 

@@ -128,7 +128,6 @@ class LiDAR4D(LiDAR_Renderer):
         if t.shape[0] == 1:
             t = t.repeat(x.shape[0], 1)
         xt = torch.cat([x, t], dim=-1)
-
         flow = self.flow_net(xt)
 
         return {

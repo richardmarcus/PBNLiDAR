@@ -1,4 +1,5 @@
 import os
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -125,6 +126,10 @@ class IntensityMeter:
             preds, truths
         )  # [B, N, 3] or [B, H, W, 3], range[0, 1]
 
+        #write first pred and truth with cv2
+        cv2.imwrite("pred.png", preds[0]*255)
+        cv2.imwrite("truth.png", truths[0]*255)
+        print("pred and truth saved")
         # simplified since max_pixel_value is 1 here.
         intensity_error = self.compute_intensity_errors(truths, preds)
 
@@ -227,11 +232,12 @@ class RaydropMeter:
 
 
 class PointsMeter:
-    def __init__(self, scale, intrinsics):
+    def __init__(self, scale, intrinsics, z_offsets):
         self.V = []
         self.N = 0
         self.scale = scale
         self.intrinsics = intrinsics
+        self.z_offsets = z_offsets
 
     def clear(self):
         self.V = []
@@ -253,8 +259,8 @@ class PointsMeter:
             preds, truths
         )  # [B, N, 3] or [B, H, W, 3], range[0, 1]
         chamLoss = chamfer_3DDist()
-        pred_lidar = pano_to_lidar(preds[0], self.intrinsics)
-        gt_lidar = pano_to_lidar(truths[0], self.intrinsics)
+        pred_lidar = pano_to_lidar(preds[0], self.intrinsics, self.z_offsets)
+        gt_lidar = pano_to_lidar(truths[0], self.intrinsics, self.z_offsets)
 
         dist1, dist2, idx1, idx2 = chamLoss(
             torch.FloatTensor(pred_lidar[None, ...]).cuda(),

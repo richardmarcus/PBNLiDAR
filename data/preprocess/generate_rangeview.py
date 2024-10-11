@@ -3,7 +3,7 @@ import argparse
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-
+import cv2
 from utils.convert import lidar_to_pano_with_intensities
 
 
@@ -68,6 +68,10 @@ def generate_train_data(
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
+        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 2]*3)
+        #png_frame_name = frame_name.replace(".npy", "_depth.png")
+        #print(f"Saved pic {out_dir / png_frame_name}")
+        #exit()
 
 
 def create_kitti_rangeview(frame_start, frame_end):
@@ -77,9 +81,9 @@ def create_kitti_rangeview(frame_start, frame_end):
     out_dir = kitti_360_parent_dir / "train"
     sequence_name = "2013_05_28_drive_0000"
 
-    H = 66
-    W = 1030
-    intrinsics = (2.0, 26.9)  # fov_up, fov
+    H = 64
+    W = 1024
+    intrinsics = (2.02984126984, 11.0317460317, -8.799812, 16.541)  # fov_up, fov
 
     frame_ids = list(range(frame_start, frame_end + 1))
 
