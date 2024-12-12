@@ -81,6 +81,8 @@ class KITTI360Dataset(BaseDataset):
             self.num_rays_lidar = -1
 
         # load nerf-compatible format data.
+        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_{self.split}.json"))
+
         with open(
             os.path.join(self.root_path, 
                          f"transforms_{self.sequence_id}_{self.split}.json"),
@@ -99,6 +101,14 @@ class KITTI360Dataset(BaseDataset):
         if "h_lidar" in transform and "w_lidar" in transform:
             self.H_lidar = int(transform["h_lidar"])
             self.W_lidar = int(transform["w_lidar"])
+            #create matrix for variable laser strenghts per laser ray with random init between 0 and 1 with gradient
+            #self.laser_strengths = torch.rand((self.H_lidar, 1), requires_grad=True)
+            #init with 0
+
+ 
+
+
+            #print gradient
 
         #self.z_offsets = [float(transform["z_offset"]), float(transform["z_offset_bot"])]
 
@@ -174,7 +184,13 @@ class KITTI360Dataset(BaseDataset):
 
         time_lidar = self.times[index].to(self.device) # [B, 1]
 
+        
+
+        
+
+
         images_lidar = self.images_lidar[index].to(self.device)  # [B, H, W, 3]
+
         if self.training:
             C = images_lidar.shape[-1]
             images_lidar = torch.gather(
@@ -192,6 +208,10 @@ class KITTI360Dataset(BaseDataset):
                 "images_lidar": images_lidar,
                 "time": time_lidar,
                 "poses_lidar": poses_lidar,
+                "row_inds": rays_lidar["row_inds"],
+                "col_inds": rays_lidar["col_inds"],
+                "index": index,
+
             }
         )
 

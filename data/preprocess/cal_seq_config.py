@@ -22,11 +22,14 @@ def get_arg_parser():
         default="4950",
         help="choose start",
     )
+    parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
+    parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
+    
     return parser
 
 
 def cal_centerpose_bound_scale(
-    lidar_rangeview_paths, lidar2worlds, fov_lidar, bound=1.0, z_offsets=[0, 0]
+    lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets, bound=1.0
 ):
     near = 200
     far = 0
@@ -96,11 +99,11 @@ def main():
     lidar_rangeview_paths, lidar2worlds, num_frames = get_path_pose_from_json(
         root_path, sequence_id=sequence_id
     )
-    #fov_lidar = [2.0, 26.9]  # fov_up, fov
-    fov_lidar = (2.02984126984, 11.0317460317, -8.799812, 16.541)
-    z_offsets = [-0.202, -0.121]
+    fov_lidar = args.fov_lidar
+    z_offsets = args.z_offsets
 
-    scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets=z_offsets)
+
+    scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets)
 
     config_path = f"configs/{args.dataset}_{args.sequence_id}.txt"
     with open(config_path, "w") as f:

@@ -33,6 +33,9 @@ class Simulator(object):
         use_refine=True, # whether to use U-Net for refinement
         H_lidar=66,   # height of lidar range map
         W_lidar=1030, # width of lidar range map
+        laser_strength = None,
+        laser_offsets = None,
+
     ):
         self.name = name
         self.opt = opt
@@ -51,6 +54,8 @@ class Simulator(object):
             )
         )
         self.console = Console()
+        self.laser_strength = laser_strength
+        self.laser_offsets = laser_offsets
 
         model.to(self.device)
         self.model = model
@@ -107,6 +112,10 @@ class Simulator(object):
             all_preds_depth = []
             all_preds_intensity = []
         B = rays_o_lidar.shape[0]
+
+        optimized_laserstrength = self.laser_strength
+        optimized_laseroffset = self.laser_offsets
+
         for i in tqdm.tqdm(range(B)):
             ray_o_lidar = rays_o_lidar[i, ...].unsqueeze(0)
             ray_d_lidar = rays_d_lidar[i, ...].unsqueeze(0)
@@ -125,13 +134,20 @@ class Simulator(object):
             pred_raydrop = pred_rgb_lidar[:, :, :, 0]
             pred_intensity = pred_rgb_lidar[:, :, :, 1]
             pred_depth = outputs_lidar["depth_lidar"].reshape(-1, self.H_lidar, self.W_lidar)
+
+
             # if self.opt.raydrop_loss == 'bce':
             #     pred_raydrop = F.sigmoid(pred_raydrop)
             if self.use_refine:
                 pred_raydrop = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
                 pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
             raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
+    
+            if self.laser_strength is not None:
+                mult_laser = optimized_laserstrength[:,0].repeat(self.W_lidar,1).T.reshape(1, self.H_lidar, self.W_lidar)
+                add_laser = optimized_laserstrength[:,1].repeat(self.W_lidar,1).T.reshape(1, self.H_lidar, self.W_lidar)
 
+                pred_intensity = pred_intensity * mult_laser + add_laser
             #pred_intensity = pred_intensity * raydrop_mask
             #pred_depth = pred_depth * raydrop_mask
 
@@ -139,7 +155,7 @@ class Simulator(object):
             pred_depth = pred_depth[0].detach().cpu().numpy()
             pred_intensity = pred_intensity[0].detach().cpu().numpy()
             #z_offsets from opt.z_offset and opt.z_offset_bottom
-            z_offsets = [self.opt.shift_z, self.opt.shift_z_bottom]
+            z_offsets = [self.opt.shift_z_top, self.opt.shift_z_bottom]
             pred_lidar = pano_to_lidar_with_intensities(
                 pred_depth / self.opt.scale, pred_intensity, self.opt.fov_lidar, z_offsets
             )
@@ -166,12 +182,22 @@ class Simulator(object):
 
                 img_intensity = (pred_intensity * 255).astype(np.uint8)
                 img_intensity = cv2.applyColorMap(img_intensity, 1)
+
+                #save depth as float npy
+                save_path_depth = os.path.join(
+                        self.workspace,
+                        "images",
+                        f"lidar4d_{i:04d}.npy",
+                    )
+                #save path exists already
+                np.save(save_path_depth, pred_depth)
                 
                 img_depth = (pred_depth * 255).astype(np.uint8)
                 img_depth = cv2.applyColorMap(img_depth, 20)
 
                 img_pred = cv2.vconcat([img_raydrop, img_intensity, img_depth])
                 cv2.imwrite(save_path, img_pred)
+              
             if save_video:
                 img_pred = cv2.cvtColor(img_pred, cv2.COLOR_BGR2RGB)
                 all_preds.append(img_pred)
@@ -212,6 +238,14 @@ class Simulator(object):
             self.model.load_state_dict(checkpoint_dict)
             self.log("[INFO] loaded model.")
             return
+        
+        
+        if "laser_strength" in checkpoint_dict:
+            self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
+            print("laser_strength loaded")
+        else:
+            print("laser_strength not found in checkpoint")
+
 
         missing_keys, unexpected_keys = self.model.load_state_dict(
             checkpoint_dict["model"], strict=False

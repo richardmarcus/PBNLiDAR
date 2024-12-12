@@ -13,6 +13,7 @@ import time
 
 import cv2
 import imageio
+from matplotlib import pyplot as plt
 import numpy as np
 import tensorboardX
 import torch
@@ -50,6 +51,11 @@ class Trainer(object):
         use_checkpoint="latest",  # which ckpt to use at init time
         use_tensorboardX=True,    # whether to use tensorboard for logging
         scheduler_update_every_step=False,  # whether to call scheduler.step() after every train step
+        laser_strength = None,
+        laser_offsets = None,
+        fov_lidar = None,
+        z_offsets = None,
+        velocity = None
     ):
         self.name = name
         self.opt = opt
@@ -73,6 +79,12 @@ class Trainer(object):
             )
         )
         self.console = Console()
+        print("setting laser strength and offsets")
+        self.laser_strength = laser_strength
+        self.laser_offsets = laser_offsets
+        self.velocity = velocity
+        self.fov_lidar = fov_lidar
+        self.z_offsets = z_offsets
 
         model.to(self.device)
         self.model = model
@@ -163,6 +175,38 @@ class Trainer(object):
 
     ### ------------------------------
 
+    def offsets_from_velocities(self, velocity, col_inds, delta_time=0.1):
+# Calculate distance traveled per time step (100ms)
+        delta_time = 0.1  
+        distance_traveled = velocity * delta_time  # [B, 3]
+
+        # Define column-related constants
+        NUM_COLUMNS = 1024
+        HALF_COLUMNS = NUM_COLUMNS // 2
+
+        # Compute per-column distance traveled in each dimension
+        distance_traveled_per_column = distance_traveled / NUM_COLUMNS  # [B, 3]
+
+        # Precompute offsets for all columns (broadcast to [B, NUM_COLUMNS, 3])
+        column_offsets = torch.arange(-HALF_COLUMNS, HALF_COLUMNS, device=distance_traveled.device).float()
+        column_offsets = column_offsets[:, None]  # Shape: [NUM_COLUMNS, 1]
+        distance_offsets = column_offsets * distance_traveled_per_column.unsqueeze(1)  # [B, NUM_COLUMNS, 3]
+
+    
+
+
+        # Flatten the batch dimension for easier indexing
+        distance_offsets_flat = distance_offsets[0]  # Shape: [1024, 3]
+        col_inds_flat = col_inds[0]  # Shape: [1024]
+
+        # Use col_inds to index distance_offsets
+        distances_traveled = distance_offsets_flat[col_inds_flat]  # Shape: [1024, 3]
+
+        # If necessary, add the batch dimension back
+        distances_traveled = distances_traveled.unsqueeze(0)  # Shape: [1, 1024, 3]
+        return distances_traveled
+
+
     def train_step(self, data):
         # Initialize all returned values
         pred_intensity = None
@@ -175,6 +219,36 @@ class Trainer(object):
         rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
         time_lidar = data['time'] # [B, 1]
         images_lidar = data["images_lidar"]  # [B, N, 3]
+        #gives line ids for each ray
+        row_inds = data["row_inds"]  # [B, N]
+ 
+        col_inds = data["col_inds"]  # [B, N]
+
+        ind = data["index"] # [B, 1]
+
+
+
+  
+        velocity = self.velocity[ind]  # [B, 3]
+
+        distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
+
+ 
+                
+
+        laser_strength = self.laser_strength[row_inds,:]
+        laser_offset = self.laser_offsets[row_inds,:]
+
+        #add channels 3,4,5 to lidar_origins and channels 6,7,8 to lidar_directions via addition
+        laser_pos_offset = laser_offset[:,:,:3] + distances_traveled
+        laser_dir_offset = laser_offset[:,:,3:6]
+
+
+        rays_o_lidar = rays_o_lidar + laser_pos_offset 
+        rays_d_lidar = rays_d_lidar + laser_dir_offset
+
+
+
 
         gt_raydrop = images_lidar[:, :, 0]
         gt_intensity = images_lidar[:, :, 1] * gt_raydrop
@@ -189,10 +263,13 @@ class Trainer(object):
             force_all_rays=False if self.opt.patch_size_lidar == 1 else True,
             **vars(self.opt),
         )
+        
 
         pred_raydrop = outputs_lidar["image_lidar"][:, :, 0]
-        pred_intensity = outputs_lidar["image_lidar"][:, :, 1] * gt_raydrop
+        pred_intensity = (outputs_lidar["image_lidar"][:, :, 1] * laser_strength[:, :, 0]) * gt_raydrop 
         pred_depth = outputs_lidar["depth_lidar"] * gt_raydrop
+
+ 
 
         if self.opt.raydrop_loss == 'bce':
             pred_raydrop = F.sigmoid(pred_raydrop)
@@ -200,6 +277,8 @@ class Trainer(object):
         # label smoothing for ray-drop
         smooth = self.opt.smooth_factor # 0.2
         gt_raydrop_smooth = gt_raydrop.clamp(smooth, 1-smooth)
+
+ 
 
         lidar_loss = (
             self.opt.alpha_d * self.criterion["depth"](pred_depth, gt_depth)
@@ -390,6 +469,25 @@ class Trainer(object):
         time_lidar = data['time']
         images_lidar = data["images_lidar"]  # [B, H, W, 3]
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
+        #gives line ids for each ray
+        row_inds = data["row_inds"]  # [B, N]
+        #gives column ids for each ray
+        col_inds = data["col_inds"]  # [B, N]
+
+        ind = data["index"] # [B, 1]
+
+   
+
+        velocity  = self.velocity[ind]  # [B, 3]
+
+        distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
+
+
+        optimized_laserstrength = self.laser_strength[row_inds,:]
+        optimized_laseroffset = self.laser_offsets[row_inds,:]
+
+        rays_o_lidar = rays_o_lidar + optimized_laseroffset[:,:,0:3] + distances_traveled
+        rays_d_lidar = rays_d_lidar + optimized_laseroffset[:,:,3:6]
 
         gt_raydrop = images_lidar[:, :, :, 0]
         gt_intensity = images_lidar[:, :, :, 1] * gt_raydrop
@@ -408,6 +506,13 @@ class Trainer(object):
         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
         pred_intensity = pred_rgb_lidar[:, :, :, 1]
         pred_depth = outputs_lidar["depth_lidar"].reshape(-1, H_lidar, W_lidar)
+        mult_laser = optimized_laserstrength[:,:,0].reshape(-1, H_lidar, W_lidar)
+        add_laser = optimized_laserstrength[:,:,1].reshape(-1, H_lidar, W_lidar)
+
+
+        pred_intensity = pred_intensity *mult_laser+add_laser
+        
+
         if self.opt.raydrop_loss == 'bce':
             pred_raydrop = F.sigmoid(pred_raydrop)
         if self.use_refine:
@@ -415,10 +520,11 @@ class Trainer(object):
             pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
         raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
 
+        
         lidar_loss = (
             self.opt.alpha_d * self.criterion["depth"](pred_depth * raydrop_mask, gt_depth).mean()
             + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop).mean()
-            + self.opt.alpha_i * self.criterion["intensity"](pred_intensity * raydrop_mask, gt_intensity).mean()
+            + self.opt.alpha_i * self.criterion["intensity"]((pred_intensity)* raydrop_mask, gt_intensity).mean()
         )
 
         loss = lidar_loss
@@ -433,7 +539,7 @@ class Trainer(object):
             loss,
         )
 
-    def test_step(self, data, perturb=False):
+    def test_step(self, data, laser_strength, perturb=False):
         pred_raydrop = None
         pred_intensity = None
         pred_depth = None
@@ -443,6 +549,26 @@ class Trainer(object):
         rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
         time_lidar = data['time']
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
+
+
+        #gives line ids for each ray
+        row_inds = data["row_inds"]  # [B, N]
+        #gives column ids for each ray
+        col_inds = data["col_inds"]  # [B, N]
+        ind = data["index"] # [B, 1]
+
+        distances_traveled = self.offsets_from_velocities(self.velocity[ind], col_inds)  # [B, N, 3]
+        
+
+        optimized_laserstrength = laser_strength[row_inds,:]
+        optimized_laseroffset = self.laser_offsets[row_inds,:]
+
+        laser_pos_offset = optimized_laseroffset[:,:,0:3] + distances_traveled
+        laser_dir_offset = optimized_laseroffset[:,:,3:6]
+
+        rays_o_lidar = rays_o_lidar + laser_pos_offset
+        rays_d_lidar = rays_d_lidar + laser_dir_offset
+
 
         outputs_lidar = self.model.render(
             rays_o_lidar,
@@ -457,6 +583,9 @@ class Trainer(object):
         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
         pred_intensity = pred_rgb_lidar[:, :, :, 1]
         pred_depth = outputs_lidar["depth_lidar"].reshape(-1, H_lidar, W_lidar)
+        mult_laser = optimized_laserstrength[:,:,0].reshape(-1, H_lidar, W_lidar)
+        add_laser = optimized_laserstrength[:,:,1].reshape(-1, H_lidar, W_lidar)
+
         if self.opt.raydrop_loss == 'bce':
             pred_raydrop = F.sigmoid(pred_raydrop)
         if self.use_refine:
@@ -464,7 +593,7 @@ class Trainer(object):
             pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
         raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
         if self.opt.alpha_r > 0:
-            pred_intensity = pred_intensity * raydrop_mask
+            pred_intensity = (pred_intensity * mult_laser + add_laser)  * raydrop_mask 
             pred_depth = pred_depth * raydrop_mask
 
         return pred_raydrop, pred_intensity, pred_depth
@@ -488,6 +617,8 @@ class Trainer(object):
 
         self.local_step = 0
 
+
+
         for data in loader:
             self.local_step += 1
             self.global_step += 1
@@ -503,9 +634,112 @@ class Trainer(object):
                     loss,
                 ) = self.train_step(data)
 
+ 
+     
+
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
+
+            #log average current_raystrength extract info from tensor
+            #print 64 means of each line of laser_strength, 1st and second channel separately
+            #for i in range(64):
+                #mean over all columns but channel separately
+            #print("mean", self.laser_strength[0,0].mean().item(), self.laser_strength[0,1].mean().item())
+                        #print average current grad of laser_strength
+
+            #if has grad
+
+            descriptors = ["mult_strength", "add_strength", "x_offset", "y_offset", "z_offset", "x_dir", "y_dir", "z_dir"]
+
+            def plot_all(data, channel, smoothing_window=5, descriptor_offset = 0):
+                x_values = range(64)  # Ray indices [0, 1, ..., 63]
+                #if channel is 0 substract 1 from y_values
+                # Plot the data
+                y_values = [data[i, channel].clone().detach().cpu().numpy() for i in x_values]
+                #if channel == 0:
+                #    y_values = [y-1 for y in y_values]
+
+                smoothed_y_values = np.convolve(y_values, 
+                                np.ones(smoothing_window)/smoothing_window, 
+                                mode='valid')  # Moving average
+                valid_x_values = range(smoothing_window//2, 64 - smoothing_window//2)
+                plt.plot(x_values, y_values, marker='o', label=f"Channel {channel}")
+                plt.plot(valid_x_values, smoothed_y_values, color='red', label=f"Smoothed Channel {channel}")
+                #plot smoothed in red
+   
+                #write to file
+                #axes
+                plt.xlabel('ray')
+                #get current axis from description
+                plt.ylabel(descriptors[channel+descriptor_offset])
+                #make folder if not exist
+                os.makedirs("raystrength", exist_ok=True)
+
+                #plt.ylim(-0.3, 0.3)
+                #save to file
+                plt.savefig(f"raystrength/{descriptors[channel+descriptor_offset]}.png")
+                print(f"saved to raystrength/{descriptors[channel+descriptor_offset]}.png")
+                plt.clf()
+
+            def print_all(channel):
+                print(descriptors[channel])
+                for i in range(64):
+                    print(str(i)+ ":",round(self.laser_strength[i, channel].item(), 2), end = ' ')
+                print()
+
+            
+                #print('#######################################################################################')
+            #r
+     
+            def plot_velocity(data):
+   
+                # Example: 60 velocity vectors (replace this with your actual data)
+                velocities = data
+                time_step = 0.1  # 10 Hz => 0.1s per frame
+
+                # Initialize positions array
+                positions = np.zeros((velocities.shape[0] + 1, 3))  # 1 extra for the initial position
+
+                # Calculate positions by integrating velocity
+                for i in range(velocities.shape[0]):
+                    positions[i + 1] = positions[i] + velocities[i] * time_step
+
+                # Visualization
+                fig = plt.figure(figsize=(10, 8))
+                ax = fig.add_subplot(111, projection='3d')
+
+                # Plot positions
+                ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label='Trajectory', marker='o', color='b')
+
+                # Annotate the starting and ending points
+                ax.text(positions[0, 0], positions[0, 1], positions[0, 2], "Start", color='green', fontsize=12)
+                ax.text(positions[-1, 0], positions[-1, 1], positions[-1, 2], "End", color='red', fontsize=12)
+
+                # Customize the plot
+                ax.set_title("Vehicle Trajectory", fontsize=14)
+                ax.set_xlabel("X Position")
+                ax.set_ylabel("Y Position")
+                ax.set_zlabel("Z Position")
+                ax.legend()
+                ax.grid(True)
+
+                # Set equal aspect ratio for better visualization
+                max_range = np.array([positions[:, 0].max()-positions[:, 0].min(), 
+                                    positions[:, 1].max()-positions[:, 1].min(), 
+                                    positions[:, 2].max()-positions[:, 2].min()]).max() / 2.0
+                mid_x = (positions[:, 0].max()+positions[:, 0].min()) * 0.5
+                mid_y = (positions[:, 1].max()+positions[:, 1].min()) * 0.5
+                mid_z = (positions[:, 2].max()+positions[:, 2].min()) * 0.5
+                ax.set_xlim(mid_x - max_range, mid_x + max_range)
+                ax.set_ylim(mid_y - max_range, mid_y + max_range)
+                ax.set_zlim(mid_z - max_range, mid_z + max_range)
+
+                # Save the plot
+                os.makedirs("velocity", exist_ok=True)
+                plt.savefig("velocity/trajectory.png")
+               
+
 
             if self.scheduler_update_every_step:
                 self.lr_scheduler.step()
@@ -537,6 +771,35 @@ class Trainer(object):
         average_loss = total_loss / self.local_step
         self.stats["loss"].append(average_loss)
         self.log(f"average_loss: {average_loss}.")
+
+        #log fov_lidar and z_offsets
+        self.log(f"fov_lidar: {self.fov_lidar.detach().cpu().numpy()}")
+        self.log(f"z_offsets: {self.z_offsets.detach().cpu().numpy()}")
+
+        if self.laser_offsets.grad is None:
+            print("mean grad", self.laser_offsets.grad.mean().item())
+            exit()
+        else:
+            for i in range(self.laser_offsets.shape[1]):
+                plot_all(self.laser_offsets, i, descriptor_offset = 2)
+
+        if self.laser_strength.grad is not None:
+            #print("mean grad", self.laser_strength.grad.mean().item())
+            #for i in range(self.laser_strength.shape[1]):
+            #    print_all(i)
+            for i in range(self.laser_strength.shape[1]):
+                plot_all(self.laser_strength,i)
+
+        if self.velocity.grad is not None:
+            plot_velocity(self.velocity.clone().detach().cpu().numpy())
+
+            #get velocity from 3d velocity vectors and print them all
+            for i in range(self.velocity.shape[0]):
+                print("velocity", i, self.velocity[i,0].item(), self.velocity[i,1].item(), self.velocity[i,2].item())
+      
+        else:
+            print("no grad")
+            exit()
 
         pbar.close()
 
@@ -607,12 +870,17 @@ class Trainer(object):
                     f"{name}_{self.local_step:04d}.png",
                 )
                 os.makedirs(os.path.dirname(save_path_pred), exist_ok=True)
+                
 
                 pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
                 img_raydrop = (pred_raydrop * 255).astype(np.uint8)
                 img_raydrop = cv2.cvtColor(img_raydrop, cv2.COLOR_GRAY2BGR)
 
+
+
                 pred_intensity = preds_intensity[0].detach().cpu().numpy()
+                #clip intensity to 0-1
+                #pred_intensity = np.clip(pred_intensity, 0, 1)
                 img_intensity = (pred_intensity * 255).astype(np.uint8)
                 img_intensity = cv2.applyColorMap(img_intensity, 1)
                 
@@ -725,6 +993,8 @@ class Trainer(object):
                 self.use_refine = False
                 self.evaluate_one_epoch(valid_loader)
 
+        #print laser_strength
+
         self.refine(refine_loader)
 
         if self.use_tensorboardX:
@@ -762,7 +1032,7 @@ class Trainer(object):
         with torch.no_grad():
             for i, data in enumerate(loader):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    preds_raydrop, preds_intensity, preds_depth = self.test_step(data)
+                    preds_raydrop, preds_intensity, preds_depth = self.test_step(data, laser_strength=self.laser_strength)
 
                 pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
                 pred_raydrop = (np.where(pred_raydrop > 0.5, 1.0, 0.0)).reshape(
@@ -775,8 +1045,13 @@ class Trainer(object):
 
                 pred_depth = preds_depth[0].detach().cpu().numpy()
 
+
+                lidar_K = loader._data.intrinsics_lidar.cpu().detach().numpy()
+                z_offsets = self.opt.z_offsets.cpu().detach().numpy()
+
+
                 pred_lidar = pano_to_lidar(
-                    pred_depth / self.opt.scale, loader._data.intrinsics_lidar, self.opt.z_offsets
+                    pred_depth / self.opt.scale, lidar_K, z_offsets
                 )
 
                 np.save(
@@ -838,13 +1113,26 @@ class Trainer(object):
         raydrop_input_list = []
         raydrop_gt_list = []
 
+   
         self.log("Preparing for Raydrop Refinemet ...")
         for i, data in enumerate(loader):
+                    #gives line ids for each ray
+            row_inds = data["row_inds"]  # [B, N]
+            #gives column ids for each ray
+            col_inds = data["col_inds"]  # [B, N]
+            optimized_laserstrength = self.laser_strength.detach()[row_inds,:]
+            optimized_laser_offset = self.laser_offsets.detach()[row_inds,:]
             rays_o_lidar = data["rays_o_lidar"]  # [B, N, 3]
             rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
+            rays_o_lidar = rays_o_lidar + optimized_laser_offset[:,:,0:3]
+            rays_d_lidar = rays_d_lidar + optimized_laser_offset[:,:,3:6]
             time_lidar = data['time']
             H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
             gt_raydrop = data["images_lidar"][:, :, :, 0].unsqueeze(0)
+
+     
+
+
 
             with torch.cuda.amp.autocast(enabled=self.opt.fp16):
                 with torch.no_grad():
@@ -858,9 +1146,11 @@ class Trainer(object):
                         **vars(self.opt),
                     )
 
+            
+
             pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, 2)
             pred_raydrop = pred_rgb_lidar[:, :, :, 0]
-            pred_intensity = pred_rgb_lidar[:, :, :, 1]
+            pred_intensity = pred_rgb_lidar[:, :, :, 1] * optimized_laserstrength[:,:,0].reshape(-1, H_lidar, W_lidar)+optimized_laserstrength[:,:,1].reshape(-1, H_lidar, W_lidar)
             pred_depth = outputs_lidar["depth_lidar"].reshape(-1, H_lidar, W_lidar)
 
             raydrop_input = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
@@ -879,8 +1169,8 @@ class Trainer(object):
 
         loss_total = []
 
-        refine_bs = 32 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
-        refine_epoch = 1000
+        refine_bs = 16 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
+        refine_epoch = 100#0
 
         optimizer = torch.optim.Adam(self.model.unet.parameters(), lr=0.001, weight_decay=0)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.001, total_steps=refine_epoch)
@@ -945,8 +1235,8 @@ class Trainer(object):
             gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
             gt_lidar = pano_to_lidar(
                 gt_depth.squeeze(0).clone().detach().cpu().numpy() / self.opt.scale, 
-                loader._data.intrinsics_lidar,
-                z_offsets = self.opt.z_offsets
+                loader._data.intrinsics_lidar.clone().detach().cpu().numpy(),
+                z_offsets = self.opt.z_offsets.clone().detach().cpu().numpy()
             )
             # remove ground
             points, ground = point_removal(gt_lidar)
@@ -974,6 +1264,9 @@ class Trainer(object):
             "epoch": self.epoch,
             "global_step": self.global_step,
             "stats": self.stats,
+            "laser_strength": self.laser_strength.detach().cpu(),
+            "laser_offsets": self.laser_offsets.detach().cpu(),
+            "velocity": self.velocity.detach().cpu()
         }
 
         if full:
@@ -1064,6 +1357,18 @@ class Trainer(object):
         if "global_step" in checkpoint_dict:
             self.global_step = checkpoint_dict["global_step"]
             self.log(f"[INFO] load at epoch {self.epoch}, global step {self.global_step}")
+
+        if "laser_strength" in checkpoint_dict:
+            self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
+            print("laser_strength loaded")
+
+        if "laser_offsets" in checkpoint_dict:
+            self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
+            print("laser_offsets loaded")
+
+        if "velocity" in checkpoint_dict:
+            self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
+            print("velocity loaded")
 
         if self.optimizer and "optimizer" in checkpoint_dict:
             try:

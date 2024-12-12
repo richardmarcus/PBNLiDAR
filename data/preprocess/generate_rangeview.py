@@ -23,17 +23,21 @@ def get_arg_parser():
         default="4950",
         help="choose start",
     )
+    parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
+    parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
+    
     return parser
 
 
 def LiDAR_2_Pano_KITTI(
-    local_points_with_intensities, lidar_H, lidar_W, intrinsics, max_depth=80.0
+    local_points_with_intensities, lidar_H, lidar_W, intrinsics, z_offsets, max_depth=80.0
 ):
     pano, intensities = lidar_to_pano_with_intensities(
         local_points_with_intensities=local_points_with_intensities,
         lidar_H=lidar_H,
         lidar_W=lidar_W,
         lidar_K=intrinsics,
+        z_offsets=z_offsets,
         max_depth=max_depth,
     )
     range_view = np.zeros((lidar_H, lidar_W, 3))
@@ -46,6 +50,7 @@ def generate_train_data(
     H,
     W,
     intrinsics,
+    z_offsets,
     lidar_paths,
     out_dir,
     points_dim,
@@ -64,18 +69,18 @@ def generate_train_data(
     for lidar_path in tqdm(lidar_paths):
         point_cloud = np.fromfile(lidar_path, dtype=np.float32)
         point_cloud = point_cloud.reshape((-1, points_dim))
-        pano = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics)
+        pano = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics, z_offsets)
         frame_name = lidar_path.split("/")[-1]
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
-        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 2]*3)
-        #png_frame_name = frame_name.replace(".npy", "_depth.png")
+        cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
+        png_frame_name = frame_name.replace(".npy", "_depth.png")
         #print(f"Saved pic {out_dir / png_frame_name}")
         #exit()
 
 
-def create_kitti_rangeview(frame_start, frame_end):
+def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets):
     data_root = Path(__file__).parent.parent
     kitti_360_root = data_root / "kitti360" / "KITTI-360"
     kitti_360_parent_dir = kitti_360_root.parent
@@ -84,8 +89,6 @@ def create_kitti_rangeview(frame_start, frame_end):
 
     H = 64
     W = 1024
-    intrinsics = (2.02984126984, 11.0317460317, -8.799812, 16.541)  # fov_up, fov
-
     frame_ids = list(range(frame_start, frame_end + 1))
 
     lidar_dir = (
@@ -103,6 +106,7 @@ def create_kitti_rangeview(frame_start, frame_end):
         H=H,
         W=W,
         intrinsics=intrinsics,
+        z_offsets=z_offsets,
         lidar_paths=lidar_paths,
         out_dir=out_dir,
         points_dim=4,
@@ -112,6 +116,8 @@ def create_kitti_rangeview(frame_start, frame_end):
 def main():
     parser = get_arg_parser()
     args = parser.parse_args()
+    fov_lidar = args.fov_lidar
+    z_offsets = args.z_offsets
 
     # Check dataset.
     if args.dataset == "kitti360":
@@ -151,7 +157,7 @@ def main():
             raise ValueError(f"Invalid sequence id: {sequence_id}")
         
         print(f"Generate rangeview from {frame_start} to {frame_end} ...")
-        create_kitti_rangeview(frame_start, frame_end)
+        create_kitti_rangeview(frame_start, frame_end, fov_lidar, z_offsets)
 
 
 if __name__ == "__main__":

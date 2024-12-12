@@ -150,6 +150,7 @@ def _get_lidar_rays(sequence_id, opt, device, interpolation):
     j = j.t().reshape([1, H * W]).expand([B, H * W])
 
     fov_up, fov, fov_up2, fov2= opt.fov_lidar
+    #fov*=2
     beta = -(i - W / 2) / W * 2 * np.pi
 
     alpha = (fov_up - j / H * fov) / 180 * np.pi
@@ -279,6 +280,11 @@ def main():
     shift_z = opt.shift_z
     scale = opt.scale
     forward = torch.tensor([[1,0,0]]).to(rays_o)
+    print(opt.shift_z_top, opt.shift_z_bottom)
+    print(opt.fov_lidar)
+
+
+
     for i in range(rays_o.shape[0]):
         # align x axis to vehicle motion direction
         if opt.align_axis:

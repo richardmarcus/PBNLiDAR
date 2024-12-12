@@ -31,6 +31,7 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, pa
         torch.linspace(0, W - 1, W, device=device),
         torch.linspace(0, H - 1, H, device=device),
     )  # float
+
     i = i.t().reshape([1, H * W]).expand([B, H * W])
     j = j.t().reshape([1, H * W]).expand([B, H * W])
     results = {}
@@ -47,9 +48,10 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, pa
         if patch_size_x > 0:
             # patch-based random sampling (overlapped)
             num_patch = N // (patch_size_x * patch_size_y)
-            inds_x = torch.randint(0, H - patch_size_x, size=[num_patch], device=device)
+            inds_x = torch.randint(0, H - patch_size_x+1, size=[num_patch], device=device)
             inds_y = torch.randint(0, W, size=[num_patch], device=device)
             inds = torch.stack([inds_x, inds_y], dim=-1)  # [np, 2]
+            #print min max inds x y
 
             # create meshgrid for each patch
             pi, pj = custom_meshgrid(
@@ -78,6 +80,13 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, pa
         inds = torch.arange(H * W, device=device).expand([B, H * W])
         results["inds"] = inds
 
+
+    #get row_indices from inds
+    row_indices = inds // W
+    col_indices = inds % W
+    results["row_inds"] = row_indices
+    results["col_inds"] = col_indices
+
     fov_up, fov, fov_up2, fov2 = intrinsics
 
     beta = -(i - W / 2) / W * 2 * np.pi
@@ -90,7 +99,7 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, pa
 
 
     alpha_top = (fov_up - j[top_mask] / (H//2) * fov) / 180 * np.pi
-    alpha_bot = (fov_up2 - (j[~top_mask]-32) / (H//2)* fov2) / 180 * np.pi
+    alpha_bot = (fov_up2 - (j[~top_mask]-H//2) / (H//2)* fov2) / 180 * np.pi
 
     alpha[top_mask] = alpha_top
     alpha[~top_mask] = alpha_bot

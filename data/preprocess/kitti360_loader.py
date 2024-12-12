@@ -110,7 +110,7 @@ class KITTI360Loader:
 
         return velo_to_world_dict
 
-    def load_lidars(self, sequence_name, frame_ids, interpolation):
+    def load_lidars(self, sequence_name, frame_ids, interpolation=None):
         """
         Args:
             sequence_name: str, name of sequence. e.g. "2013_05_28_drive_0000".

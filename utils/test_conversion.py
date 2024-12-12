@@ -5,15 +5,12 @@ from convert import pano_to_lidar_with_intensities, lidar_to_pano_with_intensiti
 source_pcd_path = "/media/oq55olys/chonk/Datasets/kittilike/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/"
 npy_path = "/home/oq55olys/Projects/neural_rendering/LiDAR4D/log/combine_dataset/"
 npy_path ="/home/oq55olys/Projects/neural_rendering/4dbase/LiDAR4D/log/kitti360_lidar4d_f1538_release/simulation/points/"
-npy_path ="/home/oq55olys/Projects/neural_rendering/LiDAR4D/log/kitti360_lidar4d_f1538_release/simulation00/points/"
+npy_path ="/home/oq55olys/Projects/neural_rendering/LiDAR4D/log/kitti360_lidar4d_1538_debug/simulation/points/"
 
 pcd_file = source_pcd_path + "0000001538.bin"
 
-z_offsets = [-0.202, -0.121]
-#2.02984126984 11.0317460317 -8.799812 16.541 
-# fov_up, fov, fov_up2, fov2 = lidar_K use object that can be unpacked
-fov_lidar = [2.02984126984, 11.0317460317, -8.799812, 16.541]
-
+fov_lidar = [2, 13.45, -11.45, 13.45]
+z_offsets = [-0.5, 0]
 
 lidar_H = 64
 lidar_W = 1024
@@ -63,7 +60,7 @@ pcd_npy.colors = o3d.utility.Vector3dVector(npy_points[:, 3:4] * np.array([0, 1,
 #paint uniform green
 pcd_npy.paint_uniform_color([0, 1, 0])
 
-o3d.visualization.draw_geometries([pcd, pcd_npy])
+o3d.visualization.draw_geometries([pcd, pcd_re])
 
 
 

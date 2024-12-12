@@ -65,7 +65,7 @@ def get_arg_parser():
     parser.add_argument("--depth_grad_loss", type=str, default="l1", help="l1, bce, mse, huber")
     parser.add_argument("--intensity_loss", type=str, default="mse", help="l1, bce, mse, huber")
     parser.add_argument("--raydrop_loss", type=str, default="mse", help="l1, bce, mse, huber")
-    parser.add_argument("--flow_loss", type=bool, default=True)
+    parser.add_argument("--flow_loss", type=bool, default=False)
     parser.add_argument("--grad_loss", type=bool, default=True)
 
     parser.add_argument("--alpha_d", type=float, default=1)
@@ -103,6 +103,42 @@ def get_arg_parser():
     parser.add_argument("--ema_decay", type=float, default=0.95, help="use ema during training")
 
     return parser
+
+def calculate_velocity(positions, delta_t=1):
+    """
+    Calculate velocities for a sequence of positions using central difference.
+
+    Parameters:
+    positions (list of float): Sequence of positions.
+    delta_t (float): Time interval between consecutive positions.
+
+    Returns:
+    list of float: Sequence of velocities.
+    """
+    n = len(positions)
+    if n < 2:
+        raise ValueError("At least two positions are required to calculate velocity.")
+
+    velocities = []
+
+    # Calculate velocity for the first point (forward difference)
+    v0 = (positions[1] - positions[0]) / delta_t
+    velocities.append(v0)
+
+    # Calculate velocity for internal points (central difference)
+    for i in range(1, n - 1):
+        v = (positions[i + 1] - positions[i - 1]) / (2 * delta_t)
+        velocities.append(v)
+
+    # Calculate velocity for the last point (backward difference)
+    vn = (positions[-1] - positions[-2]) / delta_t
+    velocities.append(vn)
+
+    #list to tensor
+    velocities = torch.tensor(velocities)
+
+    return velocities
+
 
 
 def main():
@@ -208,6 +244,8 @@ def main():
         PointsMeter(scale=opt.scale, intrinsics=opt.fov_lidar, z_offsets=opt.z_offsets),
     ]
 
+    
+
     if opt.test or opt.test_eval or opt.refine:
         trainer = Trainer(
             "lidar4d",
@@ -260,6 +298,10 @@ def main():
         trainer.test(test_loader, write_video=False)
 
     else:  # full pipeline
+
+
+        
+
         train_loader = NeRFDataset(
             device=device,
             split="train",
@@ -275,6 +317,14 @@ def main():
             z_offsets=opt.z_offsets,
         ).dataloader()
 
+        num_frames = train_loader._data.__len__()
+        poses = train_loader._data.poses_lidar
+      
+        positions = poses[:, :3, 3]
+
+        
+
+ 
         valid_loader = NeRFDataset(
             device=device,
             split="val",
@@ -306,14 +356,54 @@ def main():
             z_offsets=opt.z_offsets,
         ).dataloader()
 
+
+                #laser_strengths = torch.rand((64, 1024))
+        #init with zeros
+        laser_strengths = torch.zeros((64, 2))
+        #multiply first channel by 2
+        laser_strengths[:,  0] = 1#laser_strengths[:, 0] *2
+        laser_offsets = torch.zeros((64, 6))
+        velocity = calculate_velocity(positions, delta_t=0.1)
+        #magnitude of each 3d velocity
+
+        velocity = np.linalg.norm(cpu_velocity, axis=1)
+   
+        print("velocity", velocity)
+        exit()
+        velocity = torch.tensor(velocity)
+
+
+
+        #for i in range(64):
+        #    print("mean", i, laser_strengths[i,:,0].mean().item(),laser_strengths[i,:,1].mean().item())
+
+
+        laser_strengths = torch.nn.Parameter(laser_strengths.to(device))
+        laser_offsets = torch.nn.Parameter(laser_offsets.to(device))
+        velocity = torch.nn.Parameter(velocity.to(device))
+        opt.z_offsets = torch.nn.Parameter(torch.tensor(opt.z_offsets).to(device))
+        opt.fov_lidar = torch.nn.Parameter(torch.tensor(opt.fov_lidar).to(device))
+
+
         optimizer = lambda model: torch.optim.Adam(
-            model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15
+            model.get_params(opt.lr) 
+            #+ [{"params": [laser_strengths], "lr": 0.1 * opt.lr}] 
+            #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}] 
+            #[{"params": [opt.z_offsets], "lr": 0.1 * opt.lr}] 
+            # #+ [{"params" :[opt.fov_lidar], "lr": 0.5 * opt.lr}]
+            + [{"params": [velocity], "lr": 0.1 * opt.lr}]
+            ,  
+            betas=(0.9, 0.99),
+            eps=1e-15
         )
+
 
         # decay to 0.1 * init_lr at last iter step
         scheduler = lambda optimizer: torch.optim.lr_scheduler.LambdaLR(
             optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1)
         )
+
+
 
         trainer = Trainer(
             "lidar4d",
@@ -330,6 +420,11 @@ def main():
             lr_scheduler=scheduler,
             scheduler_update_every_step=True,
             eval_interval=opt.eval_interval,
+            laser_strength = laser_strengths,
+            laser_offsets = laser_offsets,
+            fov_lidar = opt.fov_lidar,
+            z_offsets = opt.z_offsets,
+            velocity = velocity
         )
 
         max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
