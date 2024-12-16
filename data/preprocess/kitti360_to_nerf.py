@@ -75,7 +75,7 @@ def main():
 
     print(f"Using sequence {s_frame_id}-{e_frame_id}")
 
-    frame_ids = list(range(s_frame_id, e_frame_id + 1))
+    frame_ids = list(range(s_frame_id-1, e_frame_id + 1+1))
     num_frames = len(frame_ids)
 
     test_frame_ids = val_frame_ids

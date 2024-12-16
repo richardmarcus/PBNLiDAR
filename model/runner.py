@@ -226,27 +226,114 @@ class Trainer(object):
 
         ind = data["index"] # [B, 1]
 
-
+        poses_lidar = data["poses_lidar"]  # [B, 4, 4]
 
   
         velocity = self.velocity[ind]  # [B, 3]
-
         distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
 
- 
-                
 
         laser_strength = self.laser_strength[row_inds,:]
         laser_offset = self.laser_offsets[row_inds,:]
 
-        #add channels 3,4,5 to lidar_origins and channels 6,7,8 to lidar_directions via addition
+        #offsets in lidar coordinates
         laser_pos_offset = laser_offset[:,:,:3] + distances_traveled
         laser_dir_offset = laser_offset[:,:,3:6]
 
+        inv_pose = torch.inverse(poses_lidar)
+        #add homogenous coordinates
+        rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
+        rays_o_lidar = torch.matmul(inv_pose, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
+        rays_o_lidar = rays_o_lidar[:,:,:3]
+
+
+        #for direction we only need the rotation part of the pose so we do not need homogenous coordinates
+        inv_pose_rot = inv_pose[:,:3,:3]
+        rays_d_lidar = torch.matmul(inv_pose_rot, rays_d_lidar.unsqueeze(-1)).squeeze(-1)
 
         rays_o_lidar = rays_o_lidar + laser_pos_offset 
         rays_d_lidar = rays_d_lidar + laser_dir_offset
 
+        if True:
+            batch_idx = 0  # Visualize the first batch
+            rays_d_batch = rays_d_lidar[batch_idx]  # [N, 3]
+            rays_o_batch = rays_o_lidar[batch_idx]  # [N, 3] 
+            row_batch = row_inds[batch_idx]  # [N]
+            col_batch = col_inds[batch_idx]  # [N]
+            inv_pose = inv_pose[batch_idx]  # [4, 4]
+            
+            rays_o_batch/=self.opt.scale
+
+
+            #normalize rays_d_batch
+            #set z to 0
+            rays_d_batch[:, 2] = 0
+            rays_d_batch = F.normalize(rays_d_batch, dim=-1)
+
+                    # Extract x, y components of ray directions
+            u = rays_d_batch[:, 0]  # x-component of direction
+            v = rays_d_batch[:, 1]  # y-component of direction
+
+
+            x= rays_o_batch[:, 0]
+            y= rays_o_batch[:, 1]
+            z= rays_o_batch[:, 2]
+
+                    #convert tensors to numpy
+            u = u.cpu().detach().numpy()
+            v = v.cpu().detach().numpy()
+            x = x.cpu().detach().numpy()
+            y = y.cpu().detach().numpy()
+            z = z.cpu().detach().numpy()
+
+
+
+            col_batch = col_batch.cpu().numpy()
+            row_batch = row_batch.cpu().numpy()
+
+            #col_batch is from 0 to 1024 use these to color 
+            #use colormap from black to white
+            normalized_col_batch = col_batch / 1024  # Assuming col_batch ranges from 0 to 1024
+            colmap = plt.get_cmap('gray')(normalized_col_batch) 
+
+
+    
+            # Plot the arrows
+            plt.figure(figsize=(10, 10))
+            #plt.scatter(u, v, c=colmap, label="Ray Directions", s=10) 
+            plt.scatter(x+u, y+v, c=colmap, label="Ray Directions", s=10)
+
+            plt.xlim(-2, 2)
+            plt.ylim(-2, 2)
+
+
+    
+
+            plt.xlabel("X")
+            plt.ylabel("Y")
+            plt.title("Visualization of Ray Directions (XY Components)")
+            plt.grid(True)
+            #plt.axis("equal")
+            #plt.xlim(0, np.max(col_batch))  # Limit x-axis to max column range
+            #plt.ylim(0, 64)  # Limit y-axis to 0-64 range
+
+            #write to file
+            plt.savefig("ray_directions.png")
+
+            #close plot
+            plt.close()
+
+        #revert to original coordinates
+        rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
+        rays_o_lidar = torch.matmul(poses_lidar, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
+        rays_o_lidar = rays_o_lidar[:,:,:3]
+
+        with torch.cuda.amp.autocast(enabled=False):
+            #without this it gets cast to float16
+            #but why?
+
+            rot_pose  = poses_lidar[:,:3,:3]
+            rays_d_lidar = torch.matmul(rot_pose, rays_d_lidar.unsqueeze(-1)).squeeze(-1)
 
 
 
@@ -652,6 +739,81 @@ class Trainer(object):
 
             descriptors = ["mult_strength", "add_strength", "x_offset", "y_offset", "z_offset", "x_dir", "y_dir", "z_dir"]
 
+
+
+
+            def plot_velocity(data, scale):
+                """
+                Plot velocity in 2D with color mapping and a normalized time series plot.
+
+                Parameters:
+                data (np.ndarray): Velocity data as a 2D array.
+                scale (float): Scale factor to adjust velocities.
+                """
+                # Rescale velocities
+                velocities = data / scale
+                time_step = 0.1  # 10 Hz => 0.1s per frame
+
+                os.makedirs("velocity", exist_ok=True)
+
+                # Initialize positions array
+                positions = np.zeros((velocities.shape[0] + 1, 3))  # 1 extra for the initial position
+
+                # Calculate positions by integrating velocity
+                for i in range(velocities.shape[0]):
+                    positions[i + 1] = positions[i] + velocities[i] * time_step
+
+                # 2D Plot: X and Y positions with velocity magnitude as color
+                velocity_magnitude = np.linalg.norm(velocities, axis=1)
+                plt.figure(figsize=(10, 8))
+                plt.scatter(positions[:-1, 0], positions[:-1, 1], c=velocity_magnitude, cmap='viridis', label='Trajectory')
+                plt.colorbar(label='Velocity Magnitude')
+                plt.title("Vehicle Trajectory (2D)", fontsize=14)
+                plt.xlabel("X Position")
+                plt.ylabel("Y Position")
+                plt.grid(True)
+                plt.legend()
+                plt.savefig("velocity/trajectory_2d.png")
+
+                max_x = positions[:, 0].max()
+                min_x = positions[:, 0].min()
+                max_y = positions[:, 1].max()
+                min_y = positions[:, 1].min()
+                max_z = positions[:, 2].max()
+                min_z = positions[:, 2].min()
+
+                # Normalize positions for the second plot
+                normalized_positions = (positions - positions.min(axis=0)) / (positions.max(axis=0) - positions.min(axis=0))
+
+                # 2D Plot: X, Y, Z components normalized over time
+                plt.figure(figsize=(10, 8))
+                indices = np.arange(len(normalized_positions))
+                plt.plot(indices, normalized_positions[:, 0], label=f'Normalized X (min: {min_x:.2f}, max: {max_x:.2f})', color='r')
+                plt.plot(indices, normalized_positions[:, 1], label=f'Normalized Y (min: {min_y:.2f}, max: {max_y:.2f})', color='g')
+                plt.plot(indices, normalized_positions[:, 2], label=f'Normalized Z (min: {min_z:.2f}, max: {max_z:.2f})', color='b')
+                plt.title("Normalized Position Components Over Time", fontsize=14)
+                plt.xlabel("Index")
+                plt.ylabel("Normalized Value")
+                plt.legend()
+                plt.grid(True)
+                plt.savefig("velocity/normalized_positions.png")
+
+                # Non-Normalized Plot: X, Y, Z components over time
+                plt.figure(figsize=(10, 8))
+                plt.plot(indices, positions[:, 0], label='X Position', color='r')
+                plt.plot(indices, positions[:, 1], label='Y Position', color='g')
+                plt.plot(indices, positions[:, 2], label='Z Position', color='b')
+                plt.title("Position Components Over Time", fontsize=14)
+                plt.xlabel("Index")
+                plt.ylabel("Position Value")
+                plt.legend()
+                plt.grid(True)
+                plt.savefig("velocity/positions.png")
+
+                # Print mean velocity
+                print("Mean velocity:", velocity_magnitude.mean())
+
+
             def plot_all(data, channel, smoothing_window=5, descriptor_offset = 0):
                 x_values = range(64)  # Ray indices [0, 1, ..., 63]
                 #if channel is 0 substract 1 from y_values
@@ -692,53 +854,7 @@ class Trainer(object):
                 #print('#######################################################################################')
             #r
      
-            def plot_velocity(data):
-   
-                # Example: 60 velocity vectors (replace this with your actual data)
-                velocities = data
-                time_step = 0.1  # 10 Hz => 0.1s per frame
-
-                # Initialize positions array
-                positions = np.zeros((velocities.shape[0] + 1, 3))  # 1 extra for the initial position
-
-                # Calculate positions by integrating velocity
-                for i in range(velocities.shape[0]):
-                    positions[i + 1] = positions[i] + velocities[i] * time_step
-
-                # Visualization
-                fig = plt.figure(figsize=(10, 8))
-                ax = fig.add_subplot(111, projection='3d')
-
-                # Plot positions
-                ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label='Trajectory', marker='o', color='b')
-
-                # Annotate the starting and ending points
-                ax.text(positions[0, 0], positions[0, 1], positions[0, 2], "Start", color='green', fontsize=12)
-                ax.text(positions[-1, 0], positions[-1, 1], positions[-1, 2], "End", color='red', fontsize=12)
-
-                # Customize the plot
-                ax.set_title("Vehicle Trajectory", fontsize=14)
-                ax.set_xlabel("X Position")
-                ax.set_ylabel("Y Position")
-                ax.set_zlabel("Z Position")
-                ax.legend()
-                ax.grid(True)
-
-                # Set equal aspect ratio for better visualization
-                max_range = np.array([positions[:, 0].max()-positions[:, 0].min(), 
-                                    positions[:, 1].max()-positions[:, 1].min(), 
-                                    positions[:, 2].max()-positions[:, 2].min()]).max() / 2.0
-                mid_x = (positions[:, 0].max()+positions[:, 0].min()) * 0.5
-                mid_y = (positions[:, 1].max()+positions[:, 1].min()) * 0.5
-                mid_z = (positions[:, 2].max()+positions[:, 2].min()) * 0.5
-                ax.set_xlim(mid_x - max_range, mid_x + max_range)
-                ax.set_ylim(mid_y - max_range, mid_y + max_range)
-                ax.set_zlim(mid_z - max_range, mid_z + max_range)
-
-                # Save the plot
-                os.makedirs("velocity", exist_ok=True)
-                plt.savefig("velocity/trajectory.png")
-               
+ 
 
 
             if self.scheduler_update_every_step:
@@ -791,11 +907,9 @@ class Trainer(object):
                 plot_all(self.laser_strength,i)
 
         if self.velocity.grad is not None:
-            plot_velocity(self.velocity.clone().detach().cpu().numpy())
+            plot_velocity(self.velocity.clone().detach().cpu().numpy(), self.opt.scale)
 
-            #get velocity from 3d velocity vectors and print them all
-            for i in range(self.velocity.shape[0]):
-                print("velocity", i, self.velocity[i,0].item(), self.velocity[i,1].item(), self.velocity[i,2].item())
+            
       
         else:
             print("no grad")

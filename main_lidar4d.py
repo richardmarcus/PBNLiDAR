@@ -104,7 +104,7 @@ def get_arg_parser():
 
     return parser
 
-def calculate_velocity(positions, delta_t=1):
+def calculate_velocity(positions, times):
     """
     Calculate velocities for a sequence of positions using central difference.
 
@@ -121,21 +121,25 @@ def calculate_velocity(positions, delta_t=1):
 
     velocities = []
 
+    #multiply times by n and divide by 0.1
+    times = times * n * 0.1
+
     # Calculate velocity for the first point (forward difference)
-    v0 = (positions[1] - positions[0]) / delta_t
+    v0 = (positions[1] - positions[0]) / (times[1] - times[0]) 
+
     velocities.append(v0)
 
     # Calculate velocity for internal points (central difference)
     for i in range(1, n - 1):
-        v = (positions[i + 1] - positions[i - 1]) / (2 * delta_t)
+        v = (positions[i + 1] - positions[i - 1]) / (times[i + 1] - times[i - 1])
         velocities.append(v)
 
     # Calculate velocity for the last point (backward difference)
-    vn = (positions[-1] - positions[-2]) / delta_t
+    vn = (positions[-1] - positions[-2]) / (times[-1] - times[-2])
     velocities.append(vn)
 
     #list to tensor
-    velocities = torch.tensor(velocities)
+    velocities = torch.stack(velocities)
 
     return velocities
 
@@ -243,7 +247,8 @@ def main():
         DepthMeter(scale=opt.scale),
         PointsMeter(scale=opt.scale, intrinsics=opt.fov_lidar, z_offsets=opt.z_offsets),
     ]
-
+    opt.z_offsets = torch.nn.Parameter(torch.tensor(opt.z_offsets).to(device))
+    opt.fov_lidar = torch.nn.Parameter(torch.tensor(opt.fov_lidar).to(device))
     
 
     if opt.test or opt.test_eval or opt.refine:
@@ -317,10 +322,7 @@ def main():
             z_offsets=opt.z_offsets,
         ).dataloader()
 
-        num_frames = train_loader._data.__len__()
-        poses = train_loader._data.poses_lidar
-      
-        positions = poses[:, :3, 3]
+
 
         
 
@@ -356,20 +358,33 @@ def main():
             z_offsets=opt.z_offsets,
         ).dataloader()
 
+        num_frames = train_loader._data.__len__()
+        poses = train_loader._data.poses_lidar
+        first_pose = train_loader._data.first_pose
+        last_pose = train_loader._data.last_pose
 
-                #laser_strengths = torch.rand((64, 1024))
-        #init with zeros
+        ref_pose = poses[0]
+        inv_ref_pose = torch.linalg.inv(ref_pose)
+        poses = inv_ref_pose @ poses
+        lidar_times = train_loader._data.times
+      
+        positions = poses[:, :3, 3]
+    
+
+
         laser_strengths = torch.zeros((64, 2))
         #multiply first channel by 2
         laser_strengths[:,  0] = 1#laser_strengths[:, 0] *2
         laser_offsets = torch.zeros((64, 6))
-        velocity = calculate_velocity(positions, delta_t=0.1)
+        velocity = calculate_velocity(positions,lidar_times)
+        #velocity = torch.zeros((num_frames, 3))
         #magnitude of each 3d velocity
+        cpu_velocity = velocity.cpu().detach().numpy()/opt.scale*3.6
+        cpu_velocity = np.linalg.norm(cpu_velocity, axis=1)
 
-        velocity = np.linalg.norm(cpu_velocity, axis=1)
-   
-        print("velocity", velocity)
-        exit()
+        print("mean velocity", cpu_velocity.mean())
+
+
         velocity = torch.tensor(velocity)
 
 
@@ -381,8 +396,9 @@ def main():
         laser_strengths = torch.nn.Parameter(laser_strengths.to(device))
         laser_offsets = torch.nn.Parameter(laser_offsets.to(device))
         velocity = torch.nn.Parameter(velocity.to(device))
-        opt.z_offsets = torch.nn.Parameter(torch.tensor(opt.z_offsets).to(device))
-        opt.fov_lidar = torch.nn.Parameter(torch.tensor(opt.fov_lidar).to(device))
+        #pose_offsets R and T for each frame
+        R = torch.zeros((num_frames, 3, 3))
+        T = torch.zeros((num_frames, 3))
 
 
         optimizer = lambda model: torch.optim.Adam(
@@ -391,7 +407,9 @@ def main():
             #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}] 
             #[{"params": [opt.z_offsets], "lr": 0.1 * opt.lr}] 
             # #+ [{"params" :[opt.fov_lidar], "lr": 0.5 * opt.lr}]
-            + [{"params": [velocity], "lr": 0.1 * opt.lr}]
+            #+ [{"params": [velocity], "lr": 0.5 * opt.lr}]
+            + [{"params": [R], "lr": 0.5 * opt.lr}]
+            + [{"params": [T], "lr": 0.5 * opt.lr}]
             ,  
             betas=(0.9, 0.99),
             eps=1e-15

@@ -141,6 +141,14 @@ class KITTI360Dataset(BaseDataset):
             self.images_lidar.append(image_lidar)
             self.times.append(time)
 
+        #remove first and last frame and store them separately
+        self.first_pose = self.poses_lidar[0]
+        self.last_pose = self.poses_lidar[-1]
+
+        self.poses_lidar = self.poses_lidar[1:-1]
+        self.images_lidar = self.images_lidar[1:-1]
+        self.times = self.times[1:-1]
+
         self.poses_lidar = np.stack(self.poses_lidar, axis=0)
         self.poses_lidar[:, :3, -1] = (
             self.poses_lidar[:, :3, -1] - self.offset
@@ -161,6 +169,11 @@ class KITTI360Dataset(BaseDataset):
             self.times = self.times.to(self.device)
 
         self.intrinsics_lidar = self.fov_lidar
+
+
+
+        
+
 
     def collate(self, index):
         B = len(index)  # a list of length 1

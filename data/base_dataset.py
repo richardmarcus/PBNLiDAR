@@ -13,7 +13,7 @@ def custom_meshgrid(*args):
 
 
 @torch.cuda.amp.autocast(enabled=False)
-def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, patch_size=1, scale = 0.01):
+def get_lidar_rays(poses, intrinsics, H, W, z_offsets, N=-1, patch_size=1, scale = 0.01):
     """
     Get lidar rays.
 
@@ -34,6 +34,31 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, pa
 
     i = i.t().reshape([1, H * W]).expand([B, H * W])
     j = j.t().reshape([1, H * W]).expand([B, H * W])
+
+
+    #z_offets is a list of 2 values
+    #create 2 3d vectors from z_offsets, which represent the z_components
+
+    
+    z_up = torch.tensor([0, 0], dtype=torch.float32, device=z_offsets.device)
+    z_down = torch.tensor([0, 0], dtype=torch.float32, device=z_offsets.device)
+
+    z_up = torch.cat([z_up, z_offsets[0].unsqueeze(0)], dim=0)
+    z_down = torch.cat([z_down, z_offsets[1].unsqueeze(0)], dim=0)
+
+    #create n vectors by converting from lidar coordinates to world coordinates via pose_lidar
+    #z_up = torch.matmul(poses[:, :3, :3], z_up.unsqueeze(-1)).squeeze(-1)
+    #z_down = torch.matmul(poses[:, :3, :3], z_down.unsqueeze(-1)).squeeze(-1)
+
+    z_offsets_up = z_up
+    z_offsets_down = z_down
+
+
+    #print(z_offsets_up)
+
+
+    
+
     results = {}
     if N > 0:
         N = min(N, H * W)
@@ -155,10 +180,10 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets = [-202, -0.121], N=-1, pa
 
 
     rays_o_top = rays_o[top_mask]
-    rays_o_top[:,2] -= z_offsets[0] * scale
+    rays_o_top -= z_offsets_up * scale
 
     rays_o_bot = rays_o[~top_mask]
-    rays_o_bot[:,2] -= z_offsets[1] * scale
+    rays_o_bot -= z_offsets_down * scale
 
     rays_shifted = torch.zeros_like(rays_o)
     rays_shifted[top_mask] = rays_o_top
