@@ -360,8 +360,7 @@ def main():
 
         num_frames = train_loader._data.__len__()
         poses = train_loader._data.poses_lidar
-        first_pose = train_loader._data.first_pose
-        last_pose = train_loader._data.last_pose
+
 
         ref_pose = poses[0]
         inv_ref_pose = torch.linalg.inv(ref_pose)
@@ -369,7 +368,8 @@ def main():
         lidar_times = train_loader._data.times
       
         positions = poses[:, :3, 3]
-    
+        R = train_loader._data.R
+        T = train_loader._data.T
 
 
         laser_strengths = torch.zeros((64, 2))
@@ -385,7 +385,6 @@ def main():
         print("mean velocity", cpu_velocity.mean())
 
 
-        velocity = torch.tensor(velocity)
 
 
 
@@ -396,9 +395,7 @@ def main():
         laser_strengths = torch.nn.Parameter(laser_strengths.to(device))
         laser_offsets = torch.nn.Parameter(laser_offsets.to(device))
         velocity = torch.nn.Parameter(velocity.to(device))
-        #pose_offsets R and T for each frame
-        R = torch.zeros((num_frames, 3, 3))
-        T = torch.zeros((num_frames, 3))
+
 
 
         optimizer = lambda model: torch.optim.Adam(
@@ -408,8 +405,8 @@ def main():
             #[{"params": [opt.z_offsets], "lr": 0.1 * opt.lr}] 
             # #+ [{"params" :[opt.fov_lidar], "lr": 0.5 * opt.lr}]
             #+ [{"params": [velocity], "lr": 0.5 * opt.lr}]
-            + [{"params": [R], "lr": 0.5 * opt.lr}]
-            + [{"params": [T], "lr": 0.5 * opt.lr}]
+            #+ [{"params": [R], "lr": 0.1 * opt.lr}]
+            #+ [{"params": [T], "lr": 0.1 * opt.lr}]
             ,  
             betas=(0.9, 0.99),
             eps=1e-15
@@ -442,7 +439,7 @@ def main():
             laser_offsets = laser_offsets,
             fov_lidar = opt.fov_lidar,
             z_offsets = opt.z_offsets,
-            velocity = velocity
+            velocity = velocity,
         )
 
         max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)

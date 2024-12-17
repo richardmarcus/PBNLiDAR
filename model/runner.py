@@ -55,7 +55,8 @@ class Trainer(object):
         laser_offsets = None,
         fov_lidar = None,
         z_offsets = None,
-        velocity = None
+        velocity = None,
+
     ):
         self.name = name
         self.opt = opt
@@ -85,6 +86,7 @@ class Trainer(object):
         self.velocity = velocity
         self.fov_lidar = fov_lidar
         self.z_offsets = z_offsets
+
 
         model.to(self.device)
         self.model = model
@@ -175,8 +177,74 @@ class Trainer(object):
 
     ### ------------------------------
 
+    def offsets_from_positions(self, position, position_before, position_after, col_inds):
+        # Assuming position, position_before, position_after are tensors of shape [B, 3]
+
+        # Compute the distance traveled in forward and backward directions
+        distance_traveled_forward = position_after - position  # [B, 3]
+        distance_traveled_back = position_before - position  # [B, 3]
+
+        # Define column-related constants
+        NUM_COLUMNS = 1024
+        HALF_COLUMNS = NUM_COLUMNS // 2
+
+        # Compute distance offsets for the forward direction
+        distance_offsets_forward = distance_traveled_forward.unsqueeze(1) / NUM_COLUMNS  # [B, 1, 3]
+        half_offsets_forward = torch.arange(1, HALF_COLUMNS + 1, device=position.device).float().unsqueeze(0).unsqueeze(-1)  # [1, HALF_COLUMNS, 1]
+        distance_offsets_forward = half_offsets_forward * distance_offsets_forward  # [B, HALF_COLUMNS, 3]
+
+        # Compute distance offsets for the backward direction
+        distance_offsets_back = distance_traveled_back.unsqueeze(1) / NUM_COLUMNS  # [B, 1, 3]
+        half_offsets_back = torch.arange(HALF_COLUMNS, 0, -1, device=position.device).float().unsqueeze(0).unsqueeze(-1)  # [1, HALF_COLUMNS, 1]
+        distance_offsets_back = half_offsets_back * distance_offsets_back  # [B, HALF_COLUMNS, 3]
+
+        # Combine forward and backward offsets by concatenating them along the second dimension
+        distance_offsets = torch.cat([distance_offsets_back, distance_offsets_forward], dim=1)  # [B, NUM_COLUMNS, 3]
+
+
+        distance_offsets= distance_offsets[0, col_inds]  # Shape: [128, 3]
+
+
+        return distance_offsets
+        
+
+    def interpolate_poses(self, pose, pose_before, pose_after, num_steps=1024):
+        # Generate interpolation factors
+        interpolation_factors = torch.linspace(0, 1, steps=num_steps, device=pose.device).view(-1, 1)  # Shape: [num_steps, 1]
+
+        # Decompose the 4x4 matrices into rotation (3x3) and translation (3x1)
+        rotation_before = pose_before[:, :3, :3]  # [B, 3, 3]
+        rotation_after = pose_after[:, :3, :3]  # [B, 3, 3]
+        translation_before = pose_before[:, :3, 3]  # [B, 3]
+        translation_after = pose_after[:, :3, 3]  # [B, 3]
+
+        # Convert rotations to quaternions for SLERP interpolation
+        quaternion_before = torch.linalg.matrix_to_quaternion(rotation_before)  # [B, 4]
+        quaternion_after = torch.linalg.matrix_to_quaternion(rotation_after)  # [B, 4]
+
+        # SLERP interpolation for rotations
+        quaternions_interpolated = torch.lerp(quaternion_before.unsqueeze(1), quaternion_after.unsqueeze(1), interpolation_factors)  # [B, num_steps, 4]
+
+        # Convert interpolated quaternions back to rotation matrices
+        rotations_interpolated = torch.linalg.quaternion_to_matrix(quaternions_interpolated)  # [B, num_steps, 3, 3]
+
+        # Linear interpolation for translations
+        translations_interpolated = translation_before.unsqueeze(1) * (1 - interpolation_factors) + \
+                                    translation_after.unsqueeze(1) * interpolation_factors  # [B, num_steps, 3]
+
+        # Combine interpolated rotations and translations into 4x4 matrices
+        poses_interpolated = torch.eye(4, device=pose.device).repeat(pose_before.size(0), num_steps, 1, 1)  # [B, num_steps, 4, 4]
+        poses_interpolated[:, :, :3, :3] = rotations_interpolated  # Set rotations
+        poses_interpolated[:, :, :3, 3] = translations_interpolated  # Set translations
+
+        return poses_interpolated
+
+
+
+
+
     def offsets_from_velocities(self, velocity, col_inds, delta_time=0.1):
-# Calculate distance traveled per time step (100ms)
+        # Calculate distance traveled per time step (100ms)
         delta_time = 0.1  
         distance_traveled = velocity * delta_time  # [B, 3]
 
@@ -227,20 +295,28 @@ class Trainer(object):
         ind = data["index"] # [B, 1]
 
         poses_lidar = data["poses_lidar"]  # [B, 4, 4]
+        poses_before = data["poses_before"]  # [B, 4, 4]
+        poses_after = data["poses_after"]  # [B, 4, 4]
 
   
-        velocity = self.velocity[ind]  # [B, 3]
-        distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
+        #velocity = self.velocity[ind]  # [B, 3]
+        #distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
+        distances_traveled_global = self.offsets_from_positions(poses_lidar[:, :3, 3], poses_before[:, :3, 3], poses_after[:, :3, 3], col_inds)  # [B, N, 3]
+
+        #interpolated_poses = self.interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=1024)  # [B, 1024, 4, 4]
+
+
 
 
         laser_strength = self.laser_strength[row_inds,:]
         laser_offset = self.laser_offsets[row_inds,:]
 
         #offsets in lidar coordinates
-        laser_pos_offset = laser_offset[:,:,:3] + distances_traveled
+        laser_pos_offset = laser_offset[:,:,:3] #+ distances_traveled
         laser_dir_offset = laser_offset[:,:,3:6]
 
         inv_pose = torch.inverse(poses_lidar)
+        rays_o_lidar = rays_o_lidar + distances_traveled_global
         #add homogenous coordinates
         rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
         rays_o_lidar = torch.matmul(inv_pose, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
@@ -254,7 +330,7 @@ class Trainer(object):
         rays_o_lidar = rays_o_lidar + laser_pos_offset 
         rays_d_lidar = rays_d_lidar + laser_dir_offset
 
-        if True:
+        if False:
             batch_idx = 0  # Visualize the first batch
             rays_d_batch = rays_d_lidar[batch_idx]  # [N, 3]
             rays_o_batch = rays_o_lidar[batch_idx]  # [N, 3] 
@@ -855,6 +931,32 @@ class Trainer(object):
             #r
      
  
+            def plot_trajectory(poses, positions, scale):
+                """
+                Plot the trajectory of the vehicle in 3D space.
+
+                Parameters:
+                poses (np.ndarray): Poses of the vehicle at each time step.
+                positions (np.ndarray): Positions of the vehicle at each time step.
+                scale (float): Scale factor to adjust positions.
+                """
+                # Rescale positions
+                pose_positions = poses[:, :3, 3]
+    
+                positions = positions + pose_positions
+                positions = positions / scale
+
+                # Plot the trajectory in 2d with connected points
+                plt.figure(figsize=(10, 8))
+                plt.plot(positions[:, 0], positions[:, 1], marker='o', linestyle='-', label='Trajectory')
+                plt.title("Vehicle Trajectory (2D)", fontsize=14)
+                plt.xlabel("X Position")
+                plt.ylabel("Y Position")
+                plt.grid(True)
+                plt.legend()
+                plt.savefig("trajectory_2d.png")
+
+                print("saved to trajectory_2d.png")
 
 
             if self.scheduler_update_every_step:
@@ -895,25 +997,23 @@ class Trainer(object):
         if self.laser_offsets.grad is None:
             print("mean grad", self.laser_offsets.grad.mean().item())
             exit()
-        else:
-            for i in range(self.laser_offsets.shape[1]):
-                plot_all(self.laser_offsets, i, descriptor_offset = 2)
+        #else:
+        #    for i in range(self.laser_offsets.shape[1]):
+        #        plot_all(self.laser_offsets, i, descriptor_offset = 2)
 
-        if self.laser_strength.grad is not None:
+        #if self.laser_strength.grad is not None:
             #print("mean grad", self.laser_strength.grad.mean().item())
             #for i in range(self.laser_strength.shape[1]):
             #    print_all(i)
-            for i in range(self.laser_strength.shape[1]):
-                plot_all(self.laser_strength,i)
+        #    for i in range(self.laser_strength.shape[1]):
+        #        plot_all(self.laser_strength,i)
 
-        if self.velocity.grad is not None:
-            plot_velocity(self.velocity.clone().detach().cpu().numpy(), self.opt.scale)
+        #if self.velocity.grad is not None:
+        #    plot_velocity(self.velocity.clone().detach().cpu().numpy(), self.opt.scale)
 
-            
-      
-        else:
-            print("no grad")
-            exit()
+        #if loader._data.T.grad is not None:
+
+        plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), self.opt.scale)
 
         pbar.close()
 

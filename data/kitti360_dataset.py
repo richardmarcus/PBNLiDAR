@@ -10,6 +10,54 @@ from dataclasses import dataclass, field
 from data.base_dataset import get_lidar_rays, BaseDataset
 
 
+def vec2skew(v):
+    """
+    Convert a batch of vectors to their corresponding skew-symmetric matrices.
+    :param v:  (B, 3) or (3,) torch tensor
+    :return:   (B, 3, 3) or (3, 3)
+    """
+    if v.ndim == 1:  # Handle single vector case
+        v = v.unsqueeze(0)  # Convert to (1, 3) for uniform processing
+
+    zero = torch.zeros(v.size(0), 1, dtype=torch.float32, device=v.device)  # (B, 1)
+    skew_v0 = torch.cat([zero, -v[:, 2:3], v[:, 1:2]], dim=1)  # (B, 3)
+    skew_v1 = torch.cat([v[:, 2:3], zero, -v[:, 0:1]], dim=1)  # (B, 3)
+    skew_v2 = torch.cat([-v[:, 1:2], v[:, 0:1], zero], dim=1)  # (B, 3)
+
+    skew_v = torch.stack([skew_v0, skew_v1, skew_v2], dim=1)  # (B, 3, 3)
+
+    #if skew_v.size(0) == 1:  # If input was a single vector, return (3, 3)
+    #    skew_v = skew_v.squeeze(0)
+    return skew_v
+
+def Exp(r):
+    """
+    so(3) vector to SO(3) matrix for a batch of vectors
+    :param r: (B, 3) or (3,) axis-angle, torch tensor
+    :return:  (B, 3, 3) or (3, 3)
+    """
+    if r.ndim == 1:  # Handle single vector case
+        r = r.unsqueeze(0)  # Make it (1, 3) for uniform processing
+
+
+    skew_r = vec2skew(r)  # (B, 3, 3)
+    norm_r = r.norm(dim=-1, keepdim=True) + 1e-15  # (B, 1)
+    eye = torch.eye(3, dtype=torch.float32, device=r.device).unsqueeze(0)  # (1, 3, 3)
+    
+    # Expand eye to match batch size
+    eye = eye.expand(r.size(0), -1, -1)  # (B, 3, 3)
+
+    # Compute rotation matrix
+    sin_term = (torch.sin(norm_r) / norm_r).unsqueeze(-1)  # (B, 1, 1)
+    cos_term = ((1 - torch.cos(norm_r)) / norm_r**2).unsqueeze(-1)  # (B, 1, 1)
+    R = eye + sin_term * skew_r + cos_term * (skew_r @ skew_r)  # (B, 3, 3)
+
+
+    #if R.size(0) == 1:  # If input was a single vector, return (3, 3)
+    #    R = R.squeeze(0)
+    return R
+
+
 @dataclass
 class KITTI360Dataset(BaseDataset):
     device: str = "cpu"
@@ -24,6 +72,7 @@ class KITTI360Dataset(BaseDataset):
     num_rays_lidar: int = 4096
     fov_lidar: list = field(default_factory=list)  # fov_up, fov [2.0, 26.9]
     z_offsets: list = field(default_factory=list)  # z_offset, z_offset_bot
+
 
     def __post_init__(self):
         if self.sequence_id == "1538":
@@ -73,6 +122,7 @@ class KITTI360Dataset(BaseDataset):
         print(f"Using sequence {frame_start}-{frame_end}")
         self.frame_start = frame_start
         self.frame_end = frame_end
+
 
         self.training = self.split in ["train", "all", "trainval"]
         self.num_rays_lidar = self.num_rays_lidar if self.training else -1
@@ -141,14 +191,6 @@ class KITTI360Dataset(BaseDataset):
             self.images_lidar.append(image_lidar)
             self.times.append(time)
 
-        #remove first and last frame and store them separately
-        self.first_pose = self.poses_lidar[0]
-        self.last_pose = self.poses_lidar[-1]
-
-        self.poses_lidar = self.poses_lidar[1:-1]
-        self.images_lidar = self.images_lidar[1:-1]
-        self.times = self.times[1:-1]
-
         self.poses_lidar = np.stack(self.poses_lidar, axis=0)
         self.poses_lidar[:, :3, -1] = (
             self.poses_lidar[:, :3, -1] - self.offset
@@ -170,9 +212,15 @@ class KITTI360Dataset(BaseDataset):
 
         self.intrinsics_lidar = self.fov_lidar
 
+        num_frames = len(self.poses_lidar)
+        #pose_offsets R and T for each frame
+        R = torch.zeros((num_frames, 3))
+        T = torch.zeros((num_frames, 3))
 
+        self.R = torch.nn.Parameter(R.to(self.device))
+        self.T = torch.nn.Parameter(T.to(self.device))
 
-        
+ 
 
 
     def collate(self, index):
@@ -180,7 +228,49 @@ class KITTI360Dataset(BaseDataset):
 
         results = {}
 
+
         poses_lidar = self.poses_lidar[index].to(self.device)  # [B, 4, 4]
+        R = self.R[index]
+        T = self.T[index]
+        R = Exp(R)  # (B, 3, 3)
+
+        pose_off = torch.cat([R, T.unsqueeze(-1)], dim=-1)
+        #make 3x4 matrix
+        pose_off = torch.cat([pose_off, torch.zeros_like(pose_off[:, 0:1])], dim=1)  # (B, 4, 4)
+        pose_off[:, 3, 3] = 1.0
+        poses_lidar = torch.matmul(poses_lidar, pose_off)
+  
+
+
+        prev_index = [i-1 for i in index]
+        next_index = [i+1 for i in index]
+
+        prev_poses_lidar = self.poses_lidar[prev_index].to(self.device)  # [B, 4, 4]
+        next_poses_lidar = self.poses_lidar[next_index].to(self.device)  # [B, 4, 4]
+
+       
+        prev_R = self.R[prev_index]
+        prev_T = self.T[prev_index]
+        
+        prev_R = Exp(prev_R)  # (B, 3, 3)
+        
+        prev_pose_off = torch.cat([prev_R, prev_T.unsqueeze(-1)], dim=-1)
+        prev_pose_off = torch.cat([prev_pose_off, torch.zeros_like(prev_pose_off[:, 0:1])], dim=1)  # (B, 4, 4)
+        prev_pose_off[:, 3, 3] = 1.0
+        prev_poses_lidar = torch.matmul(prev_poses_lidar, prev_pose_off)
+
+
+        next_R = self.R[next_index]
+        next_T = self.T[next_index]
+
+        next_R = Exp(next_R)  # (B, 3, 3)
+
+        next_pose_off = torch.cat([next_R, next_T.unsqueeze(-1)], dim=-1)
+        next_pose_off = torch.cat([next_pose_off, torch.zeros_like(next_pose_off[:, 0:1])], dim=1)  # (B, 4, 4)
+        next_pose_off[:, 3, 3] = 1.0
+        next_poses_lidar = torch.matmul(next_poses_lidar, next_pose_off)
+ 
+
         rays_lidar = get_lidar_rays(
             poses_lidar,
             self.intrinsics_lidar,
@@ -190,17 +280,10 @@ class KITTI360Dataset(BaseDataset):
             self.num_rays_lidar,
             self.patch_size_lidar,
             self.scale
-            
         )
-        #print shape of rays_lidar
-        #print(rays_lidar["rays_o"].shape,self.H_lidar*self.W_lidar)
+
 
         time_lidar = self.times[index].to(self.device) # [B, 1]
-
-        
-
-        
-
 
         images_lidar = self.images_lidar[index].to(self.device)  # [B, H, W, 3]
 
@@ -221,6 +304,8 @@ class KITTI360Dataset(BaseDataset):
                 "images_lidar": images_lidar,
                 "time": time_lidar,
                 "poses_lidar": poses_lidar,
+                "poses_before": prev_poses_lidar,
+                "poses_after": next_poses_lidar,
                 "row_inds": rays_lidar["row_inds"],
                 "col_inds": rays_lidar["col_inds"],
                 "index": index,
@@ -231,9 +316,9 @@ class KITTI360Dataset(BaseDataset):
         return results
 
     def dataloader(self):
-        size = len(self.poses_lidar)
+        size = len(self.poses_lidar)-2
         loader = DataLoader(
-            list(range(size)),
+            list(range(1,size+1)),
             batch_size=1,
             collate_fn=self.collate,
             shuffle=self.training,
@@ -247,5 +332,5 @@ class KITTI360Dataset(BaseDataset):
         """
         Returns # of frames in this dataset.
         """
-        num_frames = len(self.poses_lidar)
+        num_frames = len(self.poses_lidar)-2
         return num_frames
