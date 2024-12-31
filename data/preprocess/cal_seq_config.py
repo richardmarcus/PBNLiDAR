@@ -72,7 +72,8 @@ def cal_centerpose_bound_scale(
 
 def get_path_pose_from_json(root_path, sequence_id):
     with open(
-        os.path.join(root_path, f"transforms_{sequence_id}_train.json"), "r"
+        #os.path.join(root_path, f"transforms_{sequence_id}_train.json"), "r"
+        os.path.join(root_path, f"transforms_{sequence_id}_all.json"), "r"
     ) as f:
         transform = json.load(f)
     num_frames = transform["num_frames"]

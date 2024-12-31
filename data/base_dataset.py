@@ -16,7 +16,7 @@ def custom_meshgrid(*args):
 
 
 @torch.cuda.amp.autocast(enabled=False)
-def get_lidar_rays(poses, intrinsics, H, W, z_offsets, N=-1, patch_size=1, scale = 0.01):
+def get_lidar_rays(poses, intrinsics, H, W, z_offsets, alpha_offsets, N=-1, patch_size=1, scale = 0.01):
     """
     Get lidar rays.
 
@@ -43,11 +43,12 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets, N=-1, patch_size=1, scale
     #create 2 3d vectors from z_offsets, which represent the z_components
 
     
+    
     z_up = torch.tensor([0, 0], dtype=torch.float32, device=z_offsets.device)
     z_down = torch.tensor([0, 0], dtype=torch.float32, device=z_offsets.device)
 
-    z_up = torch.cat([z_up, z_offsets[0].unsqueeze(0)], dim=0)
-    z_down = torch.cat([z_down, z_offsets[1].unsqueeze(0)], dim=0)
+    z_up = torch.cat([z_up, (z_offsets[0]).unsqueeze(0)], dim=0)
+    z_down = torch.cat([z_down, (z_offsets[1]).unsqueeze(0)], dim=0)
 
     #create n vectors by converting from lidar coordinates to world coordinates via pose_lidar
     #z_up = torch.matmul(poses[:, :3, :3], z_up.unsqueeze(-1)).squeeze(-1)
@@ -124,16 +125,40 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets, N=-1, patch_size=1, scale
 
     alpha = torch.zeros_like(j)
 
+    
 
 
-    alpha_top = (fov_up - j[top_mask] / (H//2) * fov) / 180 * np.pi
-    alpha_bot = (fov_up2 - (j[~top_mask]-H//2) / (H//2)* fov2) / 180 * np.pi
+
+    alpha_top = (fov_up - j[top_mask] / (H//2-1) * fov) / 180 * np.pi
+    alpha_bot = (fov_up2 - (j[~top_mask]-H//2) / (H//2-1)* fov2) / 180 * np.pi
 
     alpha[top_mask] = alpha_top
     alpha[~top_mask] = alpha_bot
 
+    # Create zero tensors for padding
+    zero_top = torch.zeros(1, device=device)
+    zero_middle = torch.zeros(2, device=device)
+    zero_bottom = torch.zeros(1, device=device)
+
+    # Concatenate to form combined_alpha_offsets
+
+    alpha_offsets_top = alpha_offsets[:H//2]
+    alpha_offsets_bottom = alpha_offsets[H//2:]
+
+    combined_alpha_offsets = torch.cat([
+        zero_top,
+        alpha_offsets_top,
+        zero_middle,
+        alpha_offsets_bottom,
+        zero_bottom
+    ])
+
+    # Apply the combined offsets
+    alpha += combined_alpha_offsets[j.long()]
+        
 
 
+   
     #alpha lower is second 50% of the image
 
     directions = torch.stack(
@@ -180,12 +205,13 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets, N=-1, patch_size=1, scale
     rays_o = poses[..., :3, 3]  # [B, 3]
     rays_o = rays_o[:, None, :].expand_as(rays_d)  # [B, N, 3]
 
+    #z_offsets_up = z_offsets_down
 
     rays_o_top = rays_o[top_mask]
-    rays_o_top -= z_offsets_up * scale
+    rays_o_top += z_offsets_up * scale
 
     rays_o_bot = rays_o[~top_mask]
-    rays_o_bot -= z_offsets_down * scale
+    rays_o_bot += z_offsets_down * scale
 
     rays_shifted = torch.zeros_like(rays_o)
     rays_shifted[top_mask] = rays_o_top

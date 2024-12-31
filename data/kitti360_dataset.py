@@ -72,6 +72,9 @@ class KITTI360Dataset(BaseDataset):
     num_rays_lidar: int = 4096
     fov_lidar: list = field(default_factory=list)  # fov_up, fov [2.0, 26.9]
     z_offsets: list = field(default_factory=list)  # z_offset, z_offset_bot
+    alpha_offsets: list = field(default_factory=list)  # alpha_offset, alpha_offset_bot
+    R: torch.Tensor = None
+    T: torch.Tensor = None
 
 
     def __post_init__(self):
@@ -165,10 +168,16 @@ class KITTI360Dataset(BaseDataset):
         # read images
         frames = transform["frames"]
         frames = sorted(frames, key=lambda d: d['lidar_file_path'])
-
+        if "val_ids" in transform:
+            val_ids = transform["val_ids"]
+            #get id of first frame
+            frame0id = frames[0]["frame_id"]
+            val_ids = [i-frame0id for i in val_ids]
+            self.val_ids = val_ids
         self.poses_lidar = []
         self.images_lidar = []
         self.times = []
+
         for f in tqdm.tqdm(frames, desc=f"Loading {self.split} data"):
             pose_lidar = np.array(f["lidar2world"], dtype=np.float32)  # [4, 4]
 
@@ -212,16 +221,6 @@ class KITTI360Dataset(BaseDataset):
 
         self.intrinsics_lidar = self.fov_lidar
 
-        num_frames = len(self.poses_lidar)
-        #pose_offsets R and T for each frame
-        R = torch.zeros((num_frames, 3))
-        T = torch.zeros((num_frames, 3))
-
-        self.R = torch.nn.Parameter(R.to(self.device))
-        self.T = torch.nn.Parameter(T.to(self.device))
-
- 
-
 
     def collate(self, index):
         B = len(index)  # a list of length 1
@@ -230,6 +229,12 @@ class KITTI360Dataset(BaseDataset):
 
 
         poses_lidar = self.poses_lidar[index].to(self.device)  # [B, 4, 4]
+
+        #print(len(self.poses_lidar), "poses_lidar")
+        #print(poses_lidar)
+
+        #print(self.z_offsets, self.fov_lidar)
+
         R = self.R[index]
         T = self.T[index]
         R = Exp(R)  # (B, 3, 3)
@@ -244,6 +249,13 @@ class KITTI360Dataset(BaseDataset):
 
         prev_index = [i-1 for i in index]
         next_index = [i+1 for i in index]
+
+        #clip to valid range
+        prev_index = [max(0, i) for i in prev_index]
+        next_index = [min(len(self.poses_lidar)-1, i) for i in next_index]
+
+       # print(prev_index, next_index, index)
+  
 
         prev_poses_lidar = self.poses_lidar[prev_index].to(self.device)  # [B, 4, 4]
         next_poses_lidar = self.poses_lidar[next_index].to(self.device)  # [B, 4, 4]
@@ -277,6 +289,7 @@ class KITTI360Dataset(BaseDataset):
             self.H_lidar,
             self.W_lidar,
             self.z_offsets,
+            self.alpha_offsets,
             self.num_rays_lidar,
             self.patch_size_lidar,
             self.scale
@@ -316,9 +329,19 @@ class KITTI360Dataset(BaseDataset):
         return results
 
     def dataloader(self):
-        size = len(self.poses_lidar)-2
+        size = len(self.poses_lidar)#-2
+        print("size", size)
+        #if self.val_ids exist
+        if hasattr(self, 'val_ids'):
+            indices = self.val_ids
+            print("val_ids", indices)
+        else:
+            indices = list(range(size))
+
+        #list(range(1,size+1)),
+        #list(range(size)),
         loader = DataLoader(
-            list(range(1,size+1)),
+            indices,
             batch_size=1,
             collate_fn=self.collate,
             shuffle=self.training,
@@ -332,5 +355,5 @@ class KITTI360Dataset(BaseDataset):
         """
         Returns # of frames in this dataset.
         """
-        num_frames = len(self.poses_lidar)-2
+        num_frames = len(self.poses_lidar)#-2
         return num_frames

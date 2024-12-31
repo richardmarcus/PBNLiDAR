@@ -74,7 +74,7 @@ def generate_train_data(
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
-        cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
+        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
         png_frame_name = frame_name.replace(".npy", "_depth.png")
         #print(f"Saved pic {out_dir / png_frame_name}")
         #exit()

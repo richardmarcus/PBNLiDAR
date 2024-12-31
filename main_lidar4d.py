@@ -143,7 +143,52 @@ def calculate_velocity(positions, times):
 
     return velocities
 
-
+def num_frames_from_sequence_id(sequence_id):
+    if sequence_id == "1538":
+        print("Using sequence 1538-1601")
+        frame_start = 1538
+        frame_end = 1601
+    elif sequence_id == "1728":
+        print("Using sequence 1728-1791")
+        frame_start = 1728
+        frame_end = 1791
+    elif sequence_id == "1908":
+        print("Using sequence 1908-1971")
+        frame_start = 1908
+        frame_end = 1971
+    elif sequence_id == "3353":
+        print("Using sequence 3353-3416")
+        frame_start = 3353
+        frame_end = 3416
+    
+    elif sequence_id == "2350":
+        print("Using sequence 2350-2400")
+        frame_start = 2350
+        frame_end = 2400
+    elif sequence_id == "4950":
+        print("Using sequence 4950-5000")
+        frame_start = 4950
+        frame_end = 5000
+    elif sequence_id == "8120":
+        print("Using sequence 8120-8170")
+        frame_start = 8120
+        frame_end = 8170
+    elif sequence_id == "10200":
+        print("Using sequence 10200-10250")
+        frame_start = 10200
+        frame_end = 10250
+    elif sequence_id == "10750":
+        print("Using sequence 10750-10800")
+        frame_start = 10750
+        frame_end = 10800
+    elif sequence_id == "11400":
+        print("Using sequence 11400-11450")
+        frame_start = 11400
+        frame_end = 11450
+    else:
+        raise ValueError(f"Invalid sequence id: {sequence_id}")
+    
+    return frame_end - frame_start + 1
 
 def main():
     parser = get_arg_parser()
@@ -247,9 +292,38 @@ def main():
         DepthMeter(scale=opt.scale),
         PointsMeter(scale=opt.scale, intrinsics=opt.fov_lidar, z_offsets=opt.z_offsets),
     ]
+
+
+    
+    opt.z_offsets = [0.2,0.12]
+    #opt.fov_lidar = [2.0, 11, -11.45, 16]
     opt.z_offsets = torch.nn.Parameter(torch.tensor(opt.z_offsets).to(device))
     opt.fov_lidar = torch.nn.Parameter(torch.tensor(opt.fov_lidar).to(device))
+    laser_lines = 64
+
+
+
+    alpha_offsets = torch.zeros(laser_lines-4)
+    alpha_offsets = torch.nn.Parameter(alpha_offsets.to(device))
     
+    num_frames = num_frames_from_sequence_id(opt.sequence_id)
+    #pose_offsets R and T for each frame
+    R = torch.zeros((num_frames, 3))
+    #R = torch.rand((num_frames, 3), requires_grad=True)*0.02-0.01
+    T = torch.zeros((num_frames, 3))
+    #random between -0.1 and 0.1
+    #T = torch.rand((num_frames, 3), requires_grad=True)*0.02-0.01
+    #nn parameters
+    R = torch.nn.Parameter(R.to(device))
+    T = torch.nn.Parameter(T.to(device))
+
+    laser_strengths = torch.zeros((laser_lines, 2))
+    #multiply first channel by 2
+    laser_strengths[:,  0] = 1#laser_strengths[:, 0] *2
+    laser_offsets = torch.zeros((laser_lines, 3))
+    laser_strengths = torch.nn.Parameter(laser_strengths.to(device))
+    laser_offsets = torch.nn.Parameter(laser_offsets.to(device))
+
 
     if opt.test or opt.test_eval or opt.refine:
         trainer = Trainer(
@@ -262,8 +336,19 @@ def main():
             fp16=opt.fp16,
             lidar_metrics=lidar_metrics,
             use_checkpoint=opt.ckpt,
+            fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
+            alpha_offsets=alpha_offsets,
+            R = R,
+            T = T,
         )
+
+
+        opt.z_offsets = trainer.z_offsets
+        opt.fov_lidar = trainer.fov_lidar
+        alpha_offsets = trainer.alpha_offsets
+        R = trainer.R
+        T = trainer.T
 
         if opt.refine: # optimize raydrop only
             refine_loader = NeRFDataset(
@@ -279,6 +364,9 @@ def main():
                 num_rays_lidar=opt.num_rays_lidar,
                 fov_lidar=opt.fov_lidar,
                 z_offsets=opt.z_offsets,
+                alpha_offsets=alpha_offsets,
+                R = R,
+                T= T,
             ).dataloader()
             trainer.refine(refine_loader)
 
@@ -295,6 +383,9 @@ def main():
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
+            alpha_offsets=alpha_offsets,
+            R= R,
+            T= T,
         ).dataloader()
 
         if test_loader.has_gt and not opt.test:
@@ -305,108 +396,37 @@ def main():
     else:  # full pipeline
 
 
-        
-
-        train_loader = NeRFDataset(
-            device=device,
-            split="train",
-            root_path=opt.path,
-            sequence_id=opt.sequence_id,
-            preload=opt.preload,
-            scale=opt.scale,
-            offset=opt.offset,
-            fp16=opt.fp16,
-            patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
-            fov_lidar=opt.fov_lidar,
-            z_offsets=opt.z_offsets,
-        ).dataloader()
+        if False:
+            num_frames = train_loader._data.__len__()
+            poses = train_loader._data.poses_lidar
 
 
+            ref_pose = poses[0]
+            inv_ref_pose = torch.linalg.inv(ref_pose)
+            poses = inv_ref_pose @ poses
+            lidar_times = train_loader._data.times
+            positions = poses[:, :3, 3]
+            velocity = calculate_velocity(positions,lidar_times)
+            #velocity = torch.zeros((num_frames, 3))
+            #magnitude of each 3d velocity
+            cpu_velocity = velocity.cpu().detach().numpy()/opt.scale*3.6
+            cpu_velocity = np.linalg.norm(cpu_velocity, axis=1)
 
-        
-
- 
-        valid_loader = NeRFDataset(
-            device=device,
-            split="val",
-            root_path=opt.path,
-            sequence_id=opt.sequence_id,
-            preload=opt.preload,
-            scale=opt.scale,
-            offset=opt.offset,
-            fp16=opt.fp16,
-            patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
-            fov_lidar=opt.fov_lidar,
-            z_offsets=opt.z_offsets
-        ).dataloader()
-
-        # optimize raydrop
-        refine_loader = NeRFDataset(
-            device=device,
-            split="refine",
-            root_path=opt.path,
-            sequence_id=opt.sequence_id,
-            preload=opt.preload,
-            scale=opt.scale,
-            offset=opt.offset,
-            fp16=opt.fp16,
-            patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
-            fov_lidar=opt.fov_lidar,
-            z_offsets=opt.z_offsets,
-        ).dataloader()
-
-        num_frames = train_loader._data.__len__()
-        poses = train_loader._data.poses_lidar
+            print("mean velocity", cpu_velocity.mean())
+            velocity = torch.nn.Parameter(velocity.to(device))
 
 
-        ref_pose = poses[0]
-        inv_ref_pose = torch.linalg.inv(ref_pose)
-        poses = inv_ref_pose @ poses
-        lidar_times = train_loader._data.times
-      
-        positions = poses[:, :3, 3]
-        R = train_loader._data.R
-        T = train_loader._data.T
-
-
-        laser_strengths = torch.zeros((64, 2))
-        #multiply first channel by 2
-        laser_strengths[:,  0] = 1#laser_strengths[:, 0] *2
-        laser_offsets = torch.zeros((64, 6))
-        velocity = calculate_velocity(positions,lidar_times)
-        #velocity = torch.zeros((num_frames, 3))
-        #magnitude of each 3d velocity
-        cpu_velocity = velocity.cpu().detach().numpy()/opt.scale*3.6
-        cpu_velocity = np.linalg.norm(cpu_velocity, axis=1)
-
-        print("mean velocity", cpu_velocity.mean())
-
-
-
-
-
-        #for i in range(64):
-        #    print("mean", i, laser_strengths[i,:,0].mean().item(),laser_strengths[i,:,1].mean().item())
-
-
-        laser_strengths = torch.nn.Parameter(laser_strengths.to(device))
-        laser_offsets = torch.nn.Parameter(laser_offsets.to(device))
-        velocity = torch.nn.Parameter(velocity.to(device))
 
 
 
         optimizer = lambda model: torch.optim.Adam(
             model.get_params(opt.lr) 
             #+ [{"params": [laser_strengths], "lr": 0.1 * opt.lr}] 
-            #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}] 
-            #[{"params": [opt.z_offsets], "lr": 0.1 * opt.lr}] 
-            # #+ [{"params" :[opt.fov_lidar], "lr": 0.5 * opt.lr}]
-            #+ [{"params": [velocity], "lr": 0.5 * opt.lr}]
+            + [{"params": [opt.z_offsets], "lr": 0.5 * opt.lr}] 
+            + [{"params" :[opt.fov_lidar], "lr": 0.5* opt.lr}]
             #+ [{"params": [R], "lr": 0.1 * opt.lr}]
             #+ [{"params": [T], "lr": 0.1 * opt.lr}]
+            #+ [{"params": [alpha_offsets], "lr": 0.01 * opt.lr}]
             ,  
             betas=(0.9, 0.99),
             eps=1e-15
@@ -439,8 +459,73 @@ def main():
             laser_offsets = laser_offsets,
             fov_lidar = opt.fov_lidar,
             z_offsets = opt.z_offsets,
-            velocity = velocity,
+            alpha_offsets = alpha_offsets,
+            R = R,
+            T = T,
         )
+
+        opt.z_offsets = trainer.z_offsets
+        opt.fov_lidar = trainer.fov_lidar
+        alpha_offsets = trainer.alpha_offsets
+        R = trainer.R
+        T = trainer.T
+
+
+        train_loader = NeRFDataset(
+            device=device,
+            split="all",
+            root_path=opt.path,
+            sequence_id=opt.sequence_id,
+            preload=opt.preload,
+            scale=opt.scale,
+            offset=opt.offset,
+            fp16=opt.fp16,
+            patch_size_lidar=opt.patch_size_lidar,
+            num_rays_lidar=opt.num_rays_lidar,
+            fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
+            alpha_offsets=alpha_offsets,
+            R = R,
+            T= T,
+        ).dataloader()
+
+        valid_loader = NeRFDataset(
+            device=device,
+            split="val",
+            root_path=opt.path,
+            sequence_id=opt.sequence_id,
+            preload=opt.preload,
+            scale=opt.scale,
+            offset=opt.offset,
+            fp16=opt.fp16,
+            patch_size_lidar=opt.patch_size_lidar,
+            num_rays_lidar=opt.num_rays_lidar,
+            fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
+            alpha_offsets=alpha_offsets,
+            R = R,
+            T= T,
+        ).dataloader()
+
+        # optimize raydrop
+        refine_loader = NeRFDataset(
+            device=device,
+            split="refine",
+            root_path=opt.path,
+            sequence_id=opt.sequence_id,
+            preload=opt.preload,
+            scale=opt.scale,
+            offset=opt.offset,
+            fp16=opt.fp16,
+            patch_size_lidar=opt.patch_size_lidar,
+            num_rays_lidar=opt.num_rays_lidar,
+            fov_lidar=opt.fov_lidar,
+            z_offsets=opt.z_offsets,
+            alpha_offsets=alpha_offsets,
+            R = R,
+            T= T,
+        ).dataloader()
+
 
         max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
         print(f"max_epoch: {max_epoch}")
@@ -460,6 +545,9 @@ def main():
             num_rays_lidar=opt.num_rays_lidar,
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
+            alpha_offsets=alpha_offsets,
+            R = R,
+            T= T,
         ).dataloader()
 
         if test_loader.has_gt:

@@ -1,6 +1,8 @@
 import numpy as np
+import torch
+import math
 
-def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True):
+def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True, ring=True):
 
 
     local_points = local_points_with_intensities[:, :3]
@@ -26,7 +28,7 @@ def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, 
     z = z[valid_mask]
 
     alpha = np.arctan2(z, np.sqrt(x**2 + y**2)) + fov_down / 180 * np.pi
-    r = (lidar_H - alpha / (fov / 180 * np.pi / lidar_H))
+    r = (lidar_H - alpha / (fov / 180 * np.pi / lidar_H))+0.5
 
 
 
@@ -36,11 +38,13 @@ def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, 
     #stack xyz
     local_points = np.stack([x, y, z], axis=1)
 
-    y_r = calculate_ring_ids(local_points, lidar_H*2)
-    if bot:
-        y_r-=lidar_H
+    if ring:
+        y_r = calculate_ring_ids(local_points, lidar_H*2)
+        if bot:
+            y_r-=lidar_H
 
-    r = y_r
+    if ring:
+        r = y_r
     mask = (r >= 0) & (r < lidar_H) 
     r = r[mask]
     c = c[mask]
@@ -65,6 +69,67 @@ def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, 
             intensities[y,x] = intensity
 
     return pano, intensities
+
+
+def lidar_to_pano_with_intensities_half_y_coord(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True, ring=True, mask=None, laser_offsets=None):
+
+    if bot & (mask is not None):
+        mask = ~mask
+
+    local_points = local_points_with_intensities[:, :3]
+
+    # Extract coordinates
+    x = local_points[:, 0]
+    y = local_points[:, 1]
+    z = local_points[:, 2] 
+    
+    if double:
+        x = x.astype(np.float32)
+        y = y.astype(np.float32)
+        z = z.astype(np.float32)
+
+    
+    if laser_offsets is None:
+        laser_offsets = 0
+    alpha = np.arctan2(z+z_off, np.sqrt(x**2 + y**2)) + (fov_down +laser_offsets) / 180 * np.pi
+    r = (lidar_H - alpha / (fov / 180 * np.pi / lidar_H))
+
+    local_points = np.stack([x, y, z], axis=1)
+    y_r = calculate_ring_ids(local_points, lidar_H*2)
+
+    #mask = (r >= 0) & (r < lidar_H) 
+    if ring:
+        #stack xyz
+        r = y_r
+        if bot:
+            y_r-=lidar_H
+    
+    if mask is None:
+        mask = (r >= 0) & (r < lidar_H)
+    #    mask = (y_r < lidar_H) & (y_r >= 0)
+    
+    r = r[mask]
+
+    return r
+
+
+def lidar_to_pano_with_intensities_half_y_coord_torch(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot=False, double=True, ring=True, mask=None, laser_offsets=None):
+
+    points = local_points_with_intensities[:, :3]
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
+    
+    #convert to float32
+    x = x.float()
+    y = y.float()
+    z = z.float()
+
+    alpha = torch.atan2(z+z_off, torch.sqrt(x**2 + y**2)) + ((fov_down + laser_offsets) / 180.0) * math.pi
+    r = lidar_H - alpha / ((fov / 180.0) * math.pi / lidar_H)
+    
+    return r[mask]
+
 
 def get_quadrant(point):
         res = 0
@@ -108,7 +173,8 @@ def lidar_to_pano_with_intensities(
     lidar_W: int,
     lidar_K: int,
     z_offsets,
-    max_depth=80
+    max_depth=80,
+    ring=True
 
 ):
     """
@@ -132,14 +198,64 @@ def lidar_to_pano_with_intensities(
     fov_down = fov - fov_up
     fov_down2 = fov2 - fov_up2
 
-    pano, intensities = lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H//2, lidar_W, fov, fov_down, max_depth, z_offsets[0])
+    pano, intensities = lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H//2, lidar_W, fov, fov_down, max_depth, z_offsets[0], ring=ring)
 
-    pano2, intensities2 = lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H//2, lidar_W, fov2, fov_down2, max_depth, z_offsets[1], bot=True)
+    pano2, intensities2 = lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H//2, lidar_W, fov2, fov_down2, max_depth, z_offsets[1], bot=True, ring=ring)
 
     #stack
     pano = np.concatenate([pano, pano2], 0)
     intensities = np.concatenate([intensities, intensities2], 0)
     return pano, intensities
+
+
+def compare_lidar_to_pano_with_intensities(
+    local_points_with_intensities: np.ndarray,
+    lidar_H: int,
+    lidar_W: int,
+    lidar_K: int,
+    z_offsets,
+    max_depth=80,
+    ring=True,
+    mask=None,
+    laser_offsets=None
+
+):
+
+    fov_up, fov, fov_up2, fov2 = lidar_K
+    fov_down = fov - fov_up
+    fov_down2 = fov2 - fov_up2
+
+    ys= lidar_to_pano_with_intensities_half_y_coord(local_points_with_intensities, lidar_H//2, lidar_W, fov, fov_down, max_depth, z_offsets[0], ring=ring, mask=mask, laser_offsets=laser_offsets)
+
+    ys2= lidar_to_pano_with_intensities_half_y_coord(local_points_with_intensities, lidar_H//2, lidar_W, fov2, fov_down2, max_depth, z_offsets[1], bot=True, ring=ring , mask=mask, laser_offsets=laser_offsets)
+
+   
+    return ys,ys2
+
+
+def compare_lidar_to_pano_with_intensities_torch(
+    local_points_with_intensities,
+    lidar_H: int,
+    lidar_W: int,
+    lidar_K: int,
+    z_offsets,
+    max_depth=80,
+    ring=True,
+    mask=None,
+    laser_offsets=None
+
+):
+
+    fov_up, fov, fov_up2, fov2 = lidar_K
+    fov_down = fov - fov_up
+    fov_down2 = fov2 - fov_up2
+
+    ys= lidar_to_pano_with_intensities_half_y_coord_torch(local_points_with_intensities, lidar_H//2, lidar_W, fov, fov_down, max_depth, z_offsets[0], ring=ring, mask=mask, laser_offsets=laser_offsets)
+
+    ys2= lidar_to_pano_with_intensities_half_y_coord_torch(local_points_with_intensities, lidar_H//2, lidar_W, fov2, fov_down2, max_depth, z_offsets[1], bot=True, ring=ring, mask=~mask, laser_offsets=laser_offsets)
+
+   
+    return ys,ys2
 
 
 def lidar_to_pano(

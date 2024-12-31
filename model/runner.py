@@ -28,6 +28,388 @@ from torch_ema import ExponentialMovingAverage
 from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist
 from utils.convert import pano_to_lidar
 from utils.misc import point_removal
+from data.kitti360_dataset import vec2skew, Exp
+
+
+descriptors = ["mult_strength", "add_strength", "x_offset", "y_offset", "z_offset", "x_dir", "y_dir", "z_dir"]
+# Function to compute the rotation matrix from a batch of axis-angle vectors
+def axis_angle_vector_to_rotation_matrix(axis_angle_vectors):
+    # Compute angles and normalize axes
+    angles = np.linalg.norm(axis_angle_vectors, axis=1)  # Magnitude gives the angle for each vector
+    axes = axis_angle_vectors / angles[:, np.newaxis]  # Normalize each axis
+
+    # Extract the components of each axis (x, y, z)
+    x, y, z = axes[:, 0], axes[:, 1], axes[:, 2]
+    c = np.cos(angles)
+    s = np.sin(angles)
+    t = 1 - c
+
+    # Rodrigues' rotation formula applied to each axis-angle vector
+    # Resulting rotation matrix will have shape (n, 3, 3)
+    R = np.zeros((axes.shape[0], 3, 3))
+
+    R[:, 0, 0] = t*x*x + c
+    R[:, 0, 1] = t*x*y - s*z
+    R[:, 0, 2] = t*x*z + s*y
+    R[:, 1, 0] = t*x*y + s*z
+    R[:, 1, 1] = t*y*y + c
+    R[:, 1, 2] = t*y*z - s*x
+    R[:, 2, 0] = t*x*z - s*y
+    R[:, 2, 1] = t*y*z + s*x
+    R[:, 2, 2] = t*z*z + c
+
+    return R
+
+def plot_velocity(data, scale):
+    """
+    Plot velocity in 2D with color mapping and a normalized time series plot.
+
+    Parameters:
+    data (np.ndarray): Velocity data as a 2D array.
+    scale (float): Scale factor to adjust velocities.
+    """
+    # Rescale velocities
+    velocities = data / scale
+    time_step = 0.1  # 10 Hz => 0.1s per frame
+
+    os.makedirs("velocity", exist_ok=True)
+
+    # Initialize positions array
+    positions = np.zeros((velocities.shape[0] + 1, 3))  # 1 extra for the initial position
+
+    # Calculate positions by integrating velocity
+    for i in range(velocities.shape[0]):
+        positions[i + 1] = positions[i] + velocities[i] * time_step
+
+    # 2D Plot: X and Y positions with velocity magnitude as color
+    velocity_magnitude = np.linalg.norm(velocities, axis=1)
+    plt.figure(figsize=(10, 8))
+    plt.scatter(positions[:-1, 0], positions[:-1, 1], c=velocity_magnitude, cmap='viridis', label='Trajectory')
+    plt.colorbar(label='Velocity Magnitude')
+    plt.title("Vehicle Trajectory (2D)", fontsize=14)
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig("velocity/trajectory_2d.png")
+
+    max_x = positions[:, 0].max()
+    min_x = positions[:, 0].min()
+    max_y = positions[:, 1].max()
+    min_y = positions[:, 1].min()
+    max_z = positions[:, 2].max()
+    min_z = positions[:, 2].min()
+
+    # Normalize positions for the second plot
+    normalized_positions = (positions - positions.min(axis=0)) / (positions.max(axis=0) - positions.min(axis=0))
+
+    # 2D Plot: X, Y, Z components normalized over time
+    plt.figure(figsize=(10, 8))
+    indices = np.arange(len(normalized_positions))
+    plt.plot(indices, normalized_positions[:, 0], label=f'Normalized X (min: {min_x:.2f}, max: {max_x:.2f})', color='r')
+    plt.plot(indices, normalized_positions[:, 1], label=f'Normalized Y (min: {min_y:.2f}, max: {max_y:.2f})', color='g')
+    plt.plot(indices, normalized_positions[:, 2], label=f'Normalized Z (min: {min_z:.2f}, max: {max_z:.2f})', color='b')
+    plt.title("Normalized Position Components Over Time", fontsize=14)
+    plt.xlabel("Index")
+    plt.ylabel("Normalized Value")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("plots/velocity/normalized_positions.png")
+
+    # Non-Normalized Plot: X, Y, Z components over time
+    plt.figure(figsize=(10, 8))
+    plt.plot(indices, positions[:, 0], label='X Position', color='r')
+    plt.plot(indices, positions[:, 1], label='Y Position', color='g')
+    plt.plot(indices, positions[:, 2], label='Z Position', color='b')
+    plt.title("Position Components Over Time", fontsize=14)
+    plt.xlabel("Index")
+    plt.ylabel("Position Value")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("plots/velocity/positions.png")
+
+    # Print mean velocity
+    print("Mean velocity:", velocity_magnitude.mean())
+
+    plt.close()
+
+
+
+def plot_laser_offset(fov, z_offsets, alpha_offset):
+    import matplotlib.pyplot as plt
+
+    # Number of lines is number of alpha_offsets + 4
+    num_lines = len(alpha_offset) + 4
+
+    #z_offsets[0] = z_offsets[1]
+
+    # Pad alpha_offsets with 0 at beginning and end, and two 0 after the first half
+    half = len(alpha_offset) // 2
+    padded_alpha_offset = [0] + list(alpha_offset[:half]) + [0, 0] + list(alpha_offset[half:]) + [0]
+
+    # Split lines into two halves
+    half_num_lines = num_lines // 2
+
+    lower_fov_up  = fov[0] - fov[1]
+    lower_fov_down = fov[2] - fov[3]
+
+    # Generate angles for each half between fov limits
+    angles_first_half = np.linspace(fov[0], lower_fov_up, half_num_lines)
+    angles_second_half = np.linspace(fov[2], lower_fov_down, half_num_lines)
+
+    #convert to radians
+    angles_first_half = np.radians(angles_first_half)
+    angles_second_half = np.radians(angles_second_half)
+
+    # Apply alpha_offsets to angles
+    angles_first_half += np.array(padded_alpha_offset[:half_num_lines])
+    angles_second_half += np.array(padded_alpha_offset[half_num_lines:])
+
+    # Plotting
+    plt.figure(figsize=(8, 8))
+    ax = plt.gca()
+    ax.set_aspect('equal')
+
+    #Plot angles as direction rays using laser offsets as height coordinate for offset 
+    #get x and y coordinates for each angle
+    x_first_half = np.cos(angles_first_half)
+    y_first_half = np.sin(angles_first_half)
+    x_second_half = np.cos(angles_second_half)
+    y_second_half = np.sin(angles_second_half)
+
+    #use length 10
+    x_first_half *= 20
+    y_first_half *= 20
+    x_second_half *= 20
+    y_second_half *= 20
+
+    up_shift =z_offsets[0]
+    down_shift = z_offsets[1]
+
+    #add z_offsets to y coordinates
+    y_first_half += up_shift
+    y_second_half += down_shift
+
+    
+    for i in range(half_num_lines):
+        plt.plot([0, x_first_half[i]], [up_shift, y_first_half[i]], color='b')
+        plt.plot([0, x_second_half[i]], [down_shift, y_second_half[i]], color='r')
+
+   
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Laser Offsets')
+    #write file and close
+    plt.savefig("plots/laser_offsets.png")
+
+
+    # Second plot: Y-axis represents indices, X-axis represents offsets
+    plt.figure(figsize=(8, 8))
+    for line_index in range(num_lines):
+        #plot from x = -4 to 4, y = line_index
+        angle_index = angles_first_half[line_index] if line_index < half_num_lines else angles_second_half[line_index - half_num_lines]
+        delta_fov = fov[1] if line_index < half_num_lines else fov[3]
+        #delta fov to radians
+        delta_fov = np.radians(delta_fov)
+        
+        #let angle_index start at 0 so substract fov[0] in radians
+        fov_upper = fov[0] if line_index < half_num_lines else fov[2]
+        angle_index -= np.radians(fov_upper)
+        #divide by delta fov to get normalized value
+        angle_index /= -delta_fov
+        angle_index*=num_lines/2-1
+
+        #add num_lines/2 if in second half
+        if line_index >= half_num_lines:
+            angle_index += num_lines/2
+        
+
+        plt.plot([0, 1], [line_index, angle_index], color='b' if line_index < half_num_lines else 'r')
+
+    #set y to be decreasing from top to bottom
+    plt.gca().invert_yaxis()
+    plt.xlabel('Alpha Offset')
+    plt.ylabel('Line Index')
+    plt.title('Alpha Offsets')
+    plt.grid(True)
+    plt.savefig("plots/alpha_offsets.png")
+
+    plt.close()
+
+def plot_all(data, channel, smoothing_window=5, descriptor_offset = 0):
+    x_values = range(64)  # Ray indices [0, 1, ..., 63]
+    #if channel is 0 substract 1 from y_values
+    # Plot the data
+    y_values = [data[i, channel].clone().detach().cpu().numpy() for i in x_values]
+    #if channel == 0:
+    #    y_values = [y-1 for y in y_values]
+
+    smoothed_y_values = np.convolve(y_values, 
+                    np.ones(smoothing_window)/smoothing_window, 
+                    mode='valid')  # Moving average
+    valid_x_values = range(smoothing_window//2, 64 - smoothing_window//2)
+    plt.plot(x_values, y_values, marker='o', label=f"Channel {channel}")
+    plt.plot(valid_x_values, smoothed_y_values, color='red', label=f"Smoothed Channel {channel}")
+    #plot smoothed in red
+
+    #write to file
+    #axes
+    plt.xlabel('ray')
+    #get current axis from description
+    plt.ylabel(descriptors[channel+descriptor_offset])
+    #make folder if not exist
+    os.makedirs("raystrength", exist_ok=True)
+
+    #plt.ylim(-0.3, 0.3)
+    #save to file
+    plt.savefig(f"raystrength/{descriptors[channel+descriptor_offset]}.png")
+ 
+    plt.clf()
+    #close plot
+    plt.close()
+
+def print_all(channel):
+    print(descriptors[channel])
+    for i in range(64):
+        print(str(i)+ ":",round(self.laser_strength[i, channel].item(), 2), end = ' ')
+    print()
+
+
+    #print('#######################################################################################')
+#r
+
+
+def plot_direction(poses, directions, scale):
+    base_rotations = poses[:, :3, :3]
+
+    # Normalize the base rotation matrices (optional: make sure they are valid rotations)
+    base_rotations = base_rotations / np.linalg.norm(base_rotations, axis=2, keepdims=True)
+
+    # Compute the rotation matrices for each axis-angle vector (batch processing)
+    R_axis_angles = axis_angle_vector_to_rotation_matrix(directions)
+
+    # Apply the axis-angle rotations to the base rotations (matrix multiplication)
+    final_rotations = np.matmul(R_axis_angles, base_rotations)
+
+    # Create the plot
+    plt.figure(figsize=(10, 8))
+
+
+    #2d plot for x and y components of forward direction
+    forward = final_rotations[:, 1, 0:3]
+    forward_base = base_rotations[:, 1, 0:3]
+    #plot x component for each index scatter
+    plt.scatter(range(forward.shape[0]), forward[:, 0], label='X Forward', color='r')
+    plt.scatter(range(forward.shape[0]), forward_base[:, 0], label='X Forward Base', color='r', alpha=0.5)
+
+    #plot y component for each index scatter
+    plt.scatter(range(forward.shape[0]), forward[:, 1], label='Y Forward', color='g')
+    plt.scatter(range(forward.shape[0]), forward_base[:, 1], label='Y Forward Base', color='g', alpha=0.5)
+
+    #plot z component for each index scatter
+    plt.scatter(range(forward.shape[0]), forward[:, 2], label='Z Forward', color='b')
+    plt.scatter(range(forward.shape[0]), forward_base[:, 2], label='Z Forward Base', color='b', alpha=0.5)
+
+    # Set labels and title
+    plt.xlabel('Index')
+    plt.ylabel('Angle')
+    plt.title('Forward Direction (XY Components)')
+    plt.legend()
+
+    #write to file
+    plt.savefig("plots/rotation.png")
+    plt.clf()
+    # Plot X component
+    plt.figure(figsize=(10, 8))
+    plt.scatter(range(len(forward)), forward[:, 0], label='X Forward', color='r')
+    plt.scatter(range(len(forward_base)), forward_base[:, 0], label='X Forward Base', color='y', alpha=0.5)
+    plt.xlabel('Index')
+    plt.ylabel('Value')
+    plt.title('X Component of Forward Direction')
+    plt.legend()
+    plt.savefig("plots/rotation_x.png")
+    plt.clf()
+
+    # Plot Y component
+    plt.figure(figsize=(10, 8))
+    plt.scatter(range(len(forward)), forward[:, 1], label='Y Forward', color='g')
+    plt.scatter(range(len(forward_base)), forward_base[:, 1], label='Y Forward Base', color='c', alpha=0.5)
+    plt.xlabel('Index')
+    plt.ylabel('Value')
+    plt.title('Y Component of Forward Direction')
+    plt.legend()
+    plt.savefig("plots/rotation_y.png")
+    plt.clf()
+
+    # Plot Z component
+    plt.figure(figsize=(10, 8))
+    plt.scatter(range(len(forward)), forward[:, 2], label='Z Forward', color='b')
+    plt.scatter(range(len(forward_base)), forward_base[:, 2], label='Z Forward Base', color='purple', alpha=0.5)
+    plt.xlabel('Index')
+    plt.ylabel('Value')
+    plt.title('Z Component of Forward Direction')
+    plt.legend()
+    plt.savefig("plots/rotation_z.png")
+    plt.clf()
+    '''
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot the comparison: Plot original and final rotation in different colors
+    # For simplicity, plot the first row of the matrices (can be generalized)
+    #ax.quiver(0, 0, 0, base_rotations[:, 0, 0], base_rotations[:, 0, 1], base_rotations[:, 0, 2], color='r', alpha=0.5, label="Base Rotation")
+    #ax.quiver(0, 0, 0, final_rotations[:, 0, 0], final_rotations[:, 0, 1], final_rotations[:, 0, 2], color='b', alpha=0.7, label="Final Rotation")
+
+    # Set plot limits for better visualization
+    ax.set_xlim([-1.5, 1.5])
+    ax.set_ylim([-1.5, 1.5])
+    ax.set_zlim([-1.5, 1.5])
+
+    # Set labels and title
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('Base Rotation vs Final Rotation (After Axis-Angle)')
+
+    # Add legend
+    ax.legend()
+    '''
+    plt.close()
+
+
+def plot_trajectory(poses, positions, scale):
+    """
+    Plot the trajectory of the vehicle in 3D space.
+
+    Parameters:
+    poses (np.ndarray): Poses of the vehicle at each time step.
+    positions (np.ndarray): Positions of the vehicle at each time step.
+    scale (float): Scale factor to adjust positions.
+    """
+    # Rescale positions
+    pose_positions = poses[:, :3, 3]
+
+    positions_off = positions + pose_positions
+    positions = pose_positions / scale
+    positions_off = positions_off / scale
+
+
+    # Plot the trajectory in 2d with connected points
+    plt.figure(figsize=(10, 8), dpi=300)
+    plt.plot(positions[:, 0], positions[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
+    #add second trajectory
+    plt.plot(positions_off[:, 0], positions_off[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
+    plt.title("Vehicle Trajectory (2D)", fontsize=14)
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.grid(True)
+    plt.minorticks_on()
+    plt.grid(which='both', linestyle='--', linewidth=0.5)
+    plt.legend()
+    plt.savefig("plots/trajectory_2d.png")
+    #close
+    plt.clf()
+    plt.close()
 
 
 class Trainer(object):
@@ -55,7 +437,11 @@ class Trainer(object):
         laser_offsets = None,
         fov_lidar = None,
         z_offsets = None,
+        alpha_offsets = None,
         velocity = None,
+        R = None,
+        T = None,
+
 
     ):
         self.name = name
@@ -86,6 +472,9 @@ class Trainer(object):
         self.velocity = velocity
         self.fov_lidar = fov_lidar
         self.z_offsets = z_offsets
+        self.alpha_offsets = alpha_offsets
+        self.R = R
+        self.T = T
 
 
         model.to(self.device)
@@ -142,6 +531,9 @@ class Trainer(object):
         self.log(f"[INFO] #parameters: {sum([p.numel() for p in model.parameters() if p.requires_grad])}")
 
         if self.workspace is not None:
+            if self.use_checkpoint == "lidar":
+                self.log("[INFO] Only loading optimized LiDAR parameters ...")
+                self.load_checkpoint(lidar_only=True)
             if self.use_checkpoint == "scratch":
                 self.log("[INFO] Training from scratch ...")
             elif self.use_checkpoint == "latest":
@@ -198,8 +590,11 @@ class Trainer(object):
         half_offsets_back = torch.arange(HALF_COLUMNS, 0, -1, device=position.device).float().unsqueeze(0).unsqueeze(-1)  # [1, HALF_COLUMNS, 1]
         distance_offsets_back = half_offsets_back * distance_offsets_back  # [B, HALF_COLUMNS, 3]
 
+
         # Combine forward and backward offsets by concatenating them along the second dimension
         distance_offsets = torch.cat([distance_offsets_back, distance_offsets_forward], dim=1)  # [B, NUM_COLUMNS, 3]
+
+  
 
 
         distance_offsets= distance_offsets[0, col_inds]  # Shape: [128, 3]
@@ -275,6 +670,125 @@ class Trainer(object):
         return distances_traveled
 
 
+    @torch.cuda.amp.autocast(enabled=False)
+    def load_sensor_settings(self, data, rays_o_lidar, rays_d_lidar, motion=True):
+
+
+        #gives line ids for each ray
+        row_inds = data["row_inds"]  # [B, N]
+
+        laser_strength = self.laser_strength[row_inds,:]
+        if motion:
+            col_inds = data["col_inds"]  # [B, N]
+
+
+            poses_lidar = data["poses_lidar"]  # [B, 4, 4]
+            poses_before = data["poses_before"]  # [B, 4, 4]
+            poses_after = data["poses_after"]  # [B, 4, 4]
+
+            #laser_offset = self.laser_offsets[row_inds,:]
+
+            #laser_R = Exp(laser_offset[:, :3])
+
+            distances_traveled_global = self.offsets_from_positions(poses_lidar[:, :3, 3], poses_before[:, :3, 3], poses_after[:, :3, 3], col_inds)  # [B, N, 3]
+
+
+
+            
+            if False:
+
+                #add homogenous coordinates
+                rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
+                inv_pose = torch.inverse(poses_lidar)
+                inv_pose_rot = inv_pose[:,:3,:3]
+                rays_o_lidar = torch.matmul(inv_pose, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
+                rays_o_lidar = rays_o_lidar[:,:,:3]
+                #for direction we only need the rotation part of the pose so we do not need homogenous coordinates
+
+                rays_d_lidar = torch.matmul(inv_pose_rot, rays_d_lidar.unsqueeze(-1)).squeeze(-1)
+
+                batch_idx = 0  # Visualize the first batch
+                rays_d_batch = rays_d_lidar[batch_idx]  # [N, 3]
+                rays_o_batch = rays_o_lidar[batch_idx]  # [N, 3] 
+                row_batch = row_inds[batch_idx]  # [N]
+                col_batch = col_inds[batch_idx]  # [N]
+                inv_pose = inv_pose[batch_idx]  # [4, 4]
+                
+                rays_o_batch/=self.opt.scale
+
+
+                #normalize rays_d_batch
+                #set z to 0
+                rays_d_batch[:, 2] = 0
+                rays_d_batch = F.normalize(rays_d_batch, dim=-1)
+
+                        # Extract x, y components of ray directions
+                u = rays_d_batch[:, 0]  # x-component of direction
+                v = rays_d_batch[:, 1]  # y-component of direction
+
+
+                x= rays_o_batch[:, 0]
+                y= rays_o_batch[:, 1]
+                z= rays_o_batch[:, 2]
+
+                        #convert tensors to numpy
+                u = u.cpu().detach().numpy()
+                v = v.cpu().detach().numpy()
+                x = x.cpu().detach().numpy()
+                y = y.cpu().detach().numpy()
+                z = z.cpu().detach().numpy()
+
+
+
+                col_batch = col_batch.cpu().numpy()
+                row_batch = row_batch.cpu().numpy()
+
+                #col_batch is from 0 to 1024 use these to color 
+                #use colormap from black to white
+                normalized_col_batch = col_batch / 1024  # Assuming col_batch ranges from 0 to 1024
+                colmap = plt.get_cmap('gray')(normalized_col_batch) 
+
+
+        
+                # Plot the arrows
+                plt.figure(figsize=(10, 10))
+                #plt.scatter(u, v, c=colmap, label="Ray Directions", s=10) 
+                plt.scatter(x+u, y+v, c=colmap, label="Ray Directions", s=10)
+
+                plt.xlim(-2, 2)
+                plt.ylim(-2, 2)
+
+
+        
+
+                plt.xlabel("X")
+                plt.ylabel("Y")
+                plt.title("Visualization of Ray Directions (XY Components)")
+                plt.grid(True)
+                #plt.axis("equal")
+                #plt.xlim(0, np.max(col_batch))  # Limit x-axis to max column range
+                #plt.ylim(0, 64)  # Limit y-axis to 0-64 range
+
+                #write to file
+                plt.savefig("plots/ray_directions.png")
+
+                #close plot
+                plt.close()
+
+                rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
+                rays_o_lidar = torch.matmul(poses_lidar, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
+                rays_o_lidar = rays_o_lidar[:,:,:3]
+                #without this it gets cast to float16
+                #but why?
+                rot_pose  = poses_lidar[:,:3,:3]
+                rays_d_lidar = torch.matmul(rot_pose, rays_d_lidar.unsqueeze(-1)).squeeze(-1)
+
+
+        else:
+            #distance is 0s
+            distances_traveled_global = torch.zeros_like(rays_o_lidar)
+        return distances_traveled_global, laser_strength
+
     def train_step(self, data):
         # Initialize all returned values
         pred_intensity = None
@@ -287,138 +801,16 @@ class Trainer(object):
         rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
         time_lidar = data['time'] # [B, 1]
         images_lidar = data["images_lidar"]  # [B, N, 3]
-        #gives line ids for each ray
-        row_inds = data["row_inds"]  # [B, N]
- 
-        col_inds = data["col_inds"]  # [B, N]
 
-        ind = data["index"] # [B, 1]
-
-        poses_lidar = data["poses_lidar"]  # [B, 4, 4]
-        poses_before = data["poses_before"]  # [B, 4, 4]
-        poses_after = data["poses_after"]  # [B, 4, 4]
-
+        motion_offset, laser_strength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
   
-        #velocity = self.velocity[ind]  # [B, 3]
-        #distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
-        distances_traveled_global = self.offsets_from_positions(poses_lidar[:, :3, 3], poses_before[:, :3, 3], poses_after[:, :3, 3], col_inds)  # [B, N, 3]
-
-        #interpolated_poses = self.interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=1024)  # [B, 1024, 4, 4]
-
-
-
-
-        laser_strength = self.laser_strength[row_inds,:]
-        laser_offset = self.laser_offsets[row_inds,:]
-
-        #offsets in lidar coordinates
-        laser_pos_offset = laser_offset[:,:,:3] #+ distances_traveled
-        laser_dir_offset = laser_offset[:,:,3:6]
-
-        inv_pose = torch.inverse(poses_lidar)
-        rays_o_lidar = rays_o_lidar + distances_traveled_global
-        #add homogenous coordinates
-        rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
-        rays_o_lidar = torch.matmul(inv_pose, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
-        rays_o_lidar = rays_o_lidar[:,:,:3]
-
-
-        #for direction we only need the rotation part of the pose so we do not need homogenous coordinates
-        inv_pose_rot = inv_pose[:,:3,:3]
-        rays_d_lidar = torch.matmul(inv_pose_rot, rays_d_lidar.unsqueeze(-1)).squeeze(-1)
-
-        rays_o_lidar = rays_o_lidar + laser_pos_offset 
-        rays_d_lidar = rays_d_lidar + laser_dir_offset
-
-        if False:
-            batch_idx = 0  # Visualize the first batch
-            rays_d_batch = rays_d_lidar[batch_idx]  # [N, 3]
-            rays_o_batch = rays_o_lidar[batch_idx]  # [N, 3] 
-            row_batch = row_inds[batch_idx]  # [N]
-            col_batch = col_inds[batch_idx]  # [N]
-            inv_pose = inv_pose[batch_idx]  # [4, 4]
-            
-            rays_o_batch/=self.opt.scale
-
-
-            #normalize rays_d_batch
-            #set z to 0
-            rays_d_batch[:, 2] = 0
-            rays_d_batch = F.normalize(rays_d_batch, dim=-1)
-
-                    # Extract x, y components of ray directions
-            u = rays_d_batch[:, 0]  # x-component of direction
-            v = rays_d_batch[:, 1]  # y-component of direction
-
-
-            x= rays_o_batch[:, 0]
-            y= rays_o_batch[:, 1]
-            z= rays_o_batch[:, 2]
-
-                    #convert tensors to numpy
-            u = u.cpu().detach().numpy()
-            v = v.cpu().detach().numpy()
-            x = x.cpu().detach().numpy()
-            y = y.cpu().detach().numpy()
-            z = z.cpu().detach().numpy()
-
-
-
-            col_batch = col_batch.cpu().numpy()
-            row_batch = row_batch.cpu().numpy()
-
-            #col_batch is from 0 to 1024 use these to color 
-            #use colormap from black to white
-            normalized_col_batch = col_batch / 1024  # Assuming col_batch ranges from 0 to 1024
-            colmap = plt.get_cmap('gray')(normalized_col_batch) 
-
-
-    
-            # Plot the arrows
-            plt.figure(figsize=(10, 10))
-            #plt.scatter(u, v, c=colmap, label="Ray Directions", s=10) 
-            plt.scatter(x+u, y+v, c=colmap, label="Ray Directions", s=10)
-
-            plt.xlim(-2, 2)
-            plt.ylim(-2, 2)
-
-
-    
-
-            plt.xlabel("X")
-            plt.ylabel("Y")
-            plt.title("Visualization of Ray Directions (XY Components)")
-            plt.grid(True)
-            #plt.axis("equal")
-            #plt.xlim(0, np.max(col_batch))  # Limit x-axis to max column range
-            #plt.ylim(0, 64)  # Limit y-axis to 0-64 range
-
-            #write to file
-            plt.savefig("ray_directions.png")
-
-            #close plot
-            plt.close()
-
-        #revert to original coordinates
-        rays_o_lidar = torch.cat([rays_o_lidar, torch.ones_like(rays_o_lidar[:, :, :1])], dim=-1)
-        rays_o_lidar = torch.matmul(poses_lidar, rays_o_lidar.unsqueeze(-1)).squeeze(-1)
-        rays_o_lidar = rays_o_lidar[:,:,:3]
-
-        with torch.cuda.amp.autocast(enabled=False):
-            #without this it gets cast to float16
-            #but why?
-
-            rot_pose  = poses_lidar[:,:3,:3]
-            rays_d_lidar = torch.matmul(rot_pose, rays_d_lidar.unsqueeze(-1)).squeeze(-1)
-
-
 
         gt_raydrop = images_lidar[:, :, 0]
         gt_intensity = images_lidar[:, :, 1] * gt_raydrop
         gt_depth = images_lidar[:, :, 2] * gt_raydrop
 
         outputs_lidar = self.model.render(
-            rays_o_lidar,
+            rays_o_lidar+motion_offset,
             rays_d_lidar,
             time_lidar,
             staged=False,
@@ -441,12 +833,19 @@ class Trainer(object):
         smooth = self.opt.smooth_factor # 0.2
         gt_raydrop_smooth = gt_raydrop.clamp(smooth, 1-smooth)
 
- 
+        #offset loss is difference between offsets and 0.075
+        offset_loss = torch.abs(torch.abs(self.z_offsets[0]-self.z_offsets[1]) - 0.075).mean()
+
+        #strength loss that punishes values above 1 
+        strength_loss = torch.relu(laser_strength - 1.0)
 
         lidar_loss = (
             self.opt.alpha_d * self.criterion["depth"](pred_depth, gt_depth)
             + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop_smooth)
             + self.opt.alpha_i * self.criterion["intensity"](pred_intensity, gt_intensity)
+            +  0.01*strength_loss.mean()
+            + 0.001*offset_loss
+
         )
         pred_intensity = pred_intensity.unsqueeze(-1)
         gt_intensity = gt_intensity.unsqueeze(-1)
@@ -633,31 +1032,14 @@ class Trainer(object):
         images_lidar = data["images_lidar"]  # [B, H, W, 3]
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
         #gives line ids for each ray
-        row_inds = data["row_inds"]  # [B, N]
-        #gives column ids for each ray
-        col_inds = data["col_inds"]  # [B, N]
-
-        ind = data["index"] # [B, 1]
-
-   
-
-        velocity  = self.velocity[ind]  # [B, 3]
-
-        distances_traveled = self.offsets_from_velocities(velocity, col_inds)  # [B, N, 3]
-
-
-        optimized_laserstrength = self.laser_strength[row_inds,:]
-        optimized_laseroffset = self.laser_offsets[row_inds,:]
-
-        rays_o_lidar = rays_o_lidar + optimized_laseroffset[:,:,0:3] + distances_traveled
-        rays_d_lidar = rays_d_lidar + optimized_laseroffset[:,:,3:6]
+        motion_offset, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
         gt_raydrop = images_lidar[:, :, :, 0]
         gt_intensity = images_lidar[:, :, :, 1] * gt_raydrop
         gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
 
         outputs_lidar = self.model.render(
-            rays_o_lidar,
+            rays_o_lidar+motion_offset,
             rays_d_lidar,
             time_lidar,
             staged=True,
@@ -702,7 +1084,7 @@ class Trainer(object):
             loss,
         )
 
-    def test_step(self, data, laser_strength, perturb=False):
+    def test_step(self, data, perturb=False):
         pred_raydrop = None
         pred_intensity = None
         pred_depth = None
@@ -714,27 +1096,10 @@ class Trainer(object):
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
 
 
-        #gives line ids for each ray
-        row_inds = data["row_inds"]  # [B, N]
-        #gives column ids for each ray
-        col_inds = data["col_inds"]  # [B, N]
-        ind = data["index"] # [B, 1]
-
-        distances_traveled = self.offsets_from_velocities(self.velocity[ind], col_inds)  # [B, N, 3]
-        
-
-        optimized_laserstrength = laser_strength[row_inds,:]
-        optimized_laseroffset = self.laser_offsets[row_inds,:]
-
-        laser_pos_offset = optimized_laseroffset[:,:,0:3] + distances_traveled
-        laser_dir_offset = optimized_laseroffset[:,:,3:6]
-
-        rays_o_lidar = rays_o_lidar + laser_pos_offset
-        rays_d_lidar = rays_d_lidar + laser_dir_offset
-
+        motion_offset, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
         outputs_lidar = self.model.render(
-            rays_o_lidar,
+            rays_o_lidar+motion_offset,
             rays_d_lidar,
             time_lidar,
             staged=True,
@@ -768,7 +1133,24 @@ class Trainer(object):
         self.log(
             f"[{log_time}] ==> Start Training Epoch {self.epoch}, lr={self.optimizer.param_groups[0]['lr']:.6f} ..."
         )
+        #log fov_lidar and z_offsets
+        self.log(f"fov_lidar: {self.fov_lidar.detach().cpu().numpy()}")
+        self.log(f"z_offsets: {self.z_offsets.detach().cpu().numpy()}")
 
+        if self.laser_strength.grad is not None:
+            #print("mean grad", self.laser_strength.grad.mean().item())
+            #for i in range(self.laser_strength.shape[1]):
+            #    print_all(i)
+            for i in range(self.laser_strength.shape[1]):
+                plot_all(self.laser_strength,i)
+
+        plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.alpha_offsets.detach().cpu().numpy())
+
+        plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), self.opt.scale)
+
+        plot_direction(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(), self.opt.scale)
+
+        plt.close('all')
         total_loss = 0
 
         self.model.train()
@@ -777,10 +1159,7 @@ class Trainer(object):
             total=len(loader) * loader.batch_size,
             bar_format="{desc}: {percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
         )
-
         self.local_step = 0
-
-
 
         for data in loader:
             self.local_step += 1
@@ -798,166 +1177,9 @@ class Trainer(object):
                 ) = self.train_step(data)
 
  
-     
-
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-
-            #log average current_raystrength extract info from tensor
-            #print 64 means of each line of laser_strength, 1st and second channel separately
-            #for i in range(64):
-                #mean over all columns but channel separately
-            #print("mean", self.laser_strength[0,0].mean().item(), self.laser_strength[0,1].mean().item())
-                        #print average current grad of laser_strength
-
-            #if has grad
-
-            descriptors = ["mult_strength", "add_strength", "x_offset", "y_offset", "z_offset", "x_dir", "y_dir", "z_dir"]
-
-
-
-
-            def plot_velocity(data, scale):
-                """
-                Plot velocity in 2D with color mapping and a normalized time series plot.
-
-                Parameters:
-                data (np.ndarray): Velocity data as a 2D array.
-                scale (float): Scale factor to adjust velocities.
-                """
-                # Rescale velocities
-                velocities = data / scale
-                time_step = 0.1  # 10 Hz => 0.1s per frame
-
-                os.makedirs("velocity", exist_ok=True)
-
-                # Initialize positions array
-                positions = np.zeros((velocities.shape[0] + 1, 3))  # 1 extra for the initial position
-
-                # Calculate positions by integrating velocity
-                for i in range(velocities.shape[0]):
-                    positions[i + 1] = positions[i] + velocities[i] * time_step
-
-                # 2D Plot: X and Y positions with velocity magnitude as color
-                velocity_magnitude = np.linalg.norm(velocities, axis=1)
-                plt.figure(figsize=(10, 8))
-                plt.scatter(positions[:-1, 0], positions[:-1, 1], c=velocity_magnitude, cmap='viridis', label='Trajectory')
-                plt.colorbar(label='Velocity Magnitude')
-                plt.title("Vehicle Trajectory (2D)", fontsize=14)
-                plt.xlabel("X Position")
-                plt.ylabel("Y Position")
-                plt.grid(True)
-                plt.legend()
-                plt.savefig("velocity/trajectory_2d.png")
-
-                max_x = positions[:, 0].max()
-                min_x = positions[:, 0].min()
-                max_y = positions[:, 1].max()
-                min_y = positions[:, 1].min()
-                max_z = positions[:, 2].max()
-                min_z = positions[:, 2].min()
-
-                # Normalize positions for the second plot
-                normalized_positions = (positions - positions.min(axis=0)) / (positions.max(axis=0) - positions.min(axis=0))
-
-                # 2D Plot: X, Y, Z components normalized over time
-                plt.figure(figsize=(10, 8))
-                indices = np.arange(len(normalized_positions))
-                plt.plot(indices, normalized_positions[:, 0], label=f'Normalized X (min: {min_x:.2f}, max: {max_x:.2f})', color='r')
-                plt.plot(indices, normalized_positions[:, 1], label=f'Normalized Y (min: {min_y:.2f}, max: {max_y:.2f})', color='g')
-                plt.plot(indices, normalized_positions[:, 2], label=f'Normalized Z (min: {min_z:.2f}, max: {max_z:.2f})', color='b')
-                plt.title("Normalized Position Components Over Time", fontsize=14)
-                plt.xlabel("Index")
-                plt.ylabel("Normalized Value")
-                plt.legend()
-                plt.grid(True)
-                plt.savefig("velocity/normalized_positions.png")
-
-                # Non-Normalized Plot: X, Y, Z components over time
-                plt.figure(figsize=(10, 8))
-                plt.plot(indices, positions[:, 0], label='X Position', color='r')
-                plt.plot(indices, positions[:, 1], label='Y Position', color='g')
-                plt.plot(indices, positions[:, 2], label='Z Position', color='b')
-                plt.title("Position Components Over Time", fontsize=14)
-                plt.xlabel("Index")
-                plt.ylabel("Position Value")
-                plt.legend()
-                plt.grid(True)
-                plt.savefig("velocity/positions.png")
-
-                # Print mean velocity
-                print("Mean velocity:", velocity_magnitude.mean())
-
-
-            def plot_all(data, channel, smoothing_window=5, descriptor_offset = 0):
-                x_values = range(64)  # Ray indices [0, 1, ..., 63]
-                #if channel is 0 substract 1 from y_values
-                # Plot the data
-                y_values = [data[i, channel].clone().detach().cpu().numpy() for i in x_values]
-                #if channel == 0:
-                #    y_values = [y-1 for y in y_values]
-
-                smoothed_y_values = np.convolve(y_values, 
-                                np.ones(smoothing_window)/smoothing_window, 
-                                mode='valid')  # Moving average
-                valid_x_values = range(smoothing_window//2, 64 - smoothing_window//2)
-                plt.plot(x_values, y_values, marker='o', label=f"Channel {channel}")
-                plt.plot(valid_x_values, smoothed_y_values, color='red', label=f"Smoothed Channel {channel}")
-                #plot smoothed in red
-   
-                #write to file
-                #axes
-                plt.xlabel('ray')
-                #get current axis from description
-                plt.ylabel(descriptors[channel+descriptor_offset])
-                #make folder if not exist
-                os.makedirs("raystrength", exist_ok=True)
-
-                #plt.ylim(-0.3, 0.3)
-                #save to file
-                plt.savefig(f"raystrength/{descriptors[channel+descriptor_offset]}.png")
-                print(f"saved to raystrength/{descriptors[channel+descriptor_offset]}.png")
-                plt.clf()
-
-            def print_all(channel):
-                print(descriptors[channel])
-                for i in range(64):
-                    print(str(i)+ ":",round(self.laser_strength[i, channel].item(), 2), end = ' ')
-                print()
-
-            
-                #print('#######################################################################################')
-            #r
-     
- 
-            def plot_trajectory(poses, positions, scale):
-                """
-                Plot the trajectory of the vehicle in 3D space.
-
-                Parameters:
-                poses (np.ndarray): Poses of the vehicle at each time step.
-                positions (np.ndarray): Positions of the vehicle at each time step.
-                scale (float): Scale factor to adjust positions.
-                """
-                # Rescale positions
-                pose_positions = poses[:, :3, 3]
-    
-                positions = positions + pose_positions
-                positions = positions / scale
-
-                # Plot the trajectory in 2d with connected points
-                plt.figure(figsize=(10, 8))
-                plt.plot(positions[:, 0], positions[:, 1], marker='o', linestyle='-', label='Trajectory')
-                plt.title("Vehicle Trajectory (2D)", fontsize=14)
-                plt.xlabel("X Position")
-                plt.ylabel("Y Position")
-                plt.grid(True)
-                plt.legend()
-                plt.savefig("trajectory_2d.png")
-
-                print("saved to trajectory_2d.png")
-
 
             if self.scheduler_update_every_step:
                 self.lr_scheduler.step()
@@ -990,32 +1212,7 @@ class Trainer(object):
         self.stats["loss"].append(average_loss)
         self.log(f"average_loss: {average_loss}.")
 
-        #log fov_lidar and z_offsets
-        self.log(f"fov_lidar: {self.fov_lidar.detach().cpu().numpy()}")
-        self.log(f"z_offsets: {self.z_offsets.detach().cpu().numpy()}")
 
-        if self.laser_offsets.grad is None:
-            print("mean grad", self.laser_offsets.grad.mean().item())
-            exit()
-        #else:
-        #    for i in range(self.laser_offsets.shape[1]):
-        #        plot_all(self.laser_offsets, i, descriptor_offset = 2)
-
-        #if self.laser_strength.grad is not None:
-            #print("mean grad", self.laser_strength.grad.mean().item())
-            #for i in range(self.laser_strength.shape[1]):
-            #    print_all(i)
-        #    for i in range(self.laser_strength.shape[1]):
-        #        plot_all(self.laser_strength,i)
-
-        #if self.velocity.grad is not None:
-        #    plot_velocity(self.velocity.clone().detach().cpu().numpy(), self.opt.scale)
-
-        #if loader._data.T.grad is not None:
-
-        plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), self.opt.scale)
-
-        pbar.close()
 
         if not self.scheduler_update_every_step:
             if isinstance(
@@ -1026,6 +1223,7 @@ class Trainer(object):
                 self.lr_scheduler.step()
 
         self.log(f"==> Finished Epoch {self.epoch}.")
+        pbar.close()
 
     def evaluate_one_epoch(self, loader, name=None):
         self.log(f"++> Evaluate at epoch {self.epoch} ...")
@@ -1127,7 +1325,8 @@ class Trainer(object):
 
                 
                 cv2.imwrite(save_path_pred, img_gt)
-                
+
+        
                 ## save point clouds
                 # pred_lidar = pano_to_lidar(
                 #     pred_depth / self.opt.scale, loader._data.intrinsics_lidar
@@ -1209,7 +1408,7 @@ class Trainer(object):
 
         #print laser_strength
 
-        self.refine(refine_loader)
+        #self.refine(refine_loader)
 
         if self.use_tensorboardX:
             self.writer.close()
@@ -1246,7 +1445,7 @@ class Trainer(object):
         with torch.no_grad():
             for i, data in enumerate(loader):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    preds_raydrop, preds_intensity, preds_depth = self.test_step(data, laser_strength=self.laser_strength)
+                    preds_raydrop, preds_intensity, preds_depth = self.test_step(data)
 
                 pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
                 pred_raydrop = (np.where(pred_raydrop > 0.5, 1.0, 0.0)).reshape(
@@ -1331,15 +1530,14 @@ class Trainer(object):
         self.log("Preparing for Raydrop Refinemet ...")
         for i, data in enumerate(loader):
                     #gives line ids for each ray
-            row_inds = data["row_inds"]  # [B, N]
-            #gives column ids for each ray
-            col_inds = data["col_inds"]  # [B, N]
-            optimized_laserstrength = self.laser_strength.detach()[row_inds,:]
-            optimized_laser_offset = self.laser_offsets.detach()[row_inds,:]
+
+
             rays_o_lidar = data["rays_o_lidar"]  # [B, N, 3]
             rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
-            rays_o_lidar = rays_o_lidar + optimized_laser_offset[:,:,0:3]
-            rays_d_lidar = rays_d_lidar + optimized_laser_offset[:,:,3:6]
+
+
+            motion_offset, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+  
             time_lidar = data['time']
             H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
             gt_raydrop = data["images_lidar"][:, :, :, 0].unsqueeze(0)
@@ -1351,7 +1549,7 @@ class Trainer(object):
             with torch.cuda.amp.autocast(enabled=self.opt.fp16):
                 with torch.no_grad():
                     outputs_lidar = self.model.render(
-                        rays_o_lidar,
+                        rays_o_lidar+motion_offset,
                         rays_d_lidar,
                         time_lidar,
                         staged=True,
@@ -1480,7 +1678,11 @@ class Trainer(object):
             "stats": self.stats,
             "laser_strength": self.laser_strength.detach().cpu(),
             "laser_offsets": self.laser_offsets.detach().cpu(),
-            "velocity": self.velocity.detach().cpu()
+            "alpha_offsets": self.alpha_offsets.detach().cpu(),
+            "z_offsets": self.z_offsets.detach().cpu(),
+            "fov_lidar": self.fov_lidar.detach().cpu(),
+            "R": self.R.detach().cpu(),
+            "T": self.T.detach().cpu()
         }
 
         if full:
@@ -1532,7 +1734,7 @@ class Trainer(object):
                     f"[WARN] no evaluated results found, skip saving best checkpoint."
                 )
 
-    def load_checkpoint(self, checkpoint=None, model_only=False):
+    def load_checkpoint(self, checkpoint=None, model_only=False, lidar_only=False):
         if checkpoint is None:
             checkpoint_list = sorted(glob.glob(f"{self.ckpt_path}/{self.name}_ep*.pth"))
             if checkpoint_list:
@@ -1544,10 +1746,47 @@ class Trainer(object):
 
         checkpoint_dict = torch.load(checkpoint, map_location=self.device)
 
+
+        if "laser_strength" in checkpoint_dict:
+            self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
+            print("laser_strength loaded")
+
+        if "z_offsets" in checkpoint_dict:
+            self.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
+            print("z_offsets loaded")
+
+        if "fov_lidar" in checkpoint_dict:
+            self.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
+            print("fov_lidar loaded")
+
+        if "alpha_offsets" in checkpoint_dict:
+            self.alpha_offsets = torch.nn.Parameter(checkpoint_dict['alpha_offsets'].to(self.device))
+            print("alpha_offsets loaded")
+
+        if "laser_offsets" in checkpoint_dict:
+            self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
+            print("laser_offsets loaded")
+
+        if "velocity" in checkpoint_dict:
+            self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
+            print("velocity loaded")
+
+        if "R" in checkpoint_dict:
+            self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
+            print("R loaded")
+
+        if "T" in checkpoint_dict:
+            self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
+            print("T loaded")
+
+        if lidar_only:
+            return
+
         if "model" not in checkpoint_dict:
             self.model.load_state_dict(checkpoint_dict)
             self.log("[INFO] loaded model.")
             return
+
 
         missing_keys, unexpected_keys = self.model.load_state_dict(
             checkpoint_dict["model"], strict=False
@@ -1572,17 +1811,9 @@ class Trainer(object):
             self.global_step = checkpoint_dict["global_step"]
             self.log(f"[INFO] load at epoch {self.epoch}, global step {self.global_step}")
 
-        if "laser_strength" in checkpoint_dict:
-            self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
-            print("laser_strength loaded")
 
-        if "laser_offsets" in checkpoint_dict:
-            self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
-            print("laser_offsets loaded")
+ 
 
-        if "velocity" in checkpoint_dict:
-            self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
-            print("velocity loaded")
 
         if self.optimizer and "optimizer" in checkpoint_dict:
             try:
