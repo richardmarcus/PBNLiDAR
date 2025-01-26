@@ -232,12 +232,13 @@ class RaydropMeter:
 
 
 class PointsMeter:
-    def __init__(self, scale, intrinsics, z_offsets):
+    def __init__(self, scale, intrinsics, z_offsets, laser_offsets):
         self.V = []
         self.N = 0
         self.scale = scale
         self.intrinsics = intrinsics
         self.z_offsets = z_offsets
+        self.laser_offsets = laser_offsets
 
     def clear(self):
         self.V = []
@@ -259,8 +260,8 @@ class PointsMeter:
             preds, truths
         )  # [B, N, 3] or [B, H, W, 3], range[0, 1]
         chamLoss = chamfer_3DDist()
-        pred_lidar = pano_to_lidar(preds[0], self.intrinsics, self.z_offsets)
-        gt_lidar = pano_to_lidar(truths[0], self.intrinsics, self.z_offsets)
+        pred_lidar = pano_to_lidar(preds[0], self.intrinsics, self.z_offsets, self.laser_offsets)
+        gt_lidar = pano_to_lidar(truths[0], self.intrinsics, self.z_offsets, self.laser_offsets)
 
         dist1, dist2, idx1, idx2 = chamLoss(
             torch.FloatTensor(pred_lidar[None, ...]).cuda(),

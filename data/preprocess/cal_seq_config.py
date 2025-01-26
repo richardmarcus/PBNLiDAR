@@ -24,19 +24,19 @@ def get_arg_parser():
     )
     parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
-    
+    parser.add_argument("--laser_offsets", type=float, nargs="*", default=0, help="offset of lasers")
     return parser
 
 
 def cal_centerpose_bound_scale(
-    lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets, bound=1.0
+    lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets, laser_offsets, bound=1.0
 ):
     near = 200
     far = 0
     points_world_list = []
     for i, lidar_rangeview_path in enumerate(lidar_rangeview_paths):
         pano = np.load(lidar_rangeview_path)
-        point_cloud = pano_to_lidar(pano=pano[:, :, 2], lidar_K=fov_lidar, z_offsets=z_offsets)
+        point_cloud = pano_to_lidar(pano=pano[:, :, 2], lidar_K=fov_lidar, z_offsets=z_offsets, laser_offsets=laser_offsets)
         point_cloud = np.concatenate(
             [point_cloud, np.ones(point_cloud.shape[0]).reshape(-1, 1)], -1
         )
@@ -102,9 +102,12 @@ def main():
     )
     fov_lidar = args.fov_lidar
     z_offsets = args.z_offsets
+    laser_offsets = args.laser_offsets
+
+    laser_offsets = np.array(laser_offsets, dtype=np.float32)
 
 
-    scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets)
+    scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets, laser_offsets)
 
     config_path = f"configs/{args.dataset}_{args.sequence_id}.txt"
     with open(config_path, "w") as f:

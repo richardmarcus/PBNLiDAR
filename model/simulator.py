@@ -35,7 +35,7 @@ class Simulator(object):
         W_lidar=1030, # width of lidar range map
         laser_strength = None,
         laser_offsets = None,
-        alpha_offsets = None,
+        laser_offsets = None,
         fov_lidar = None,
         z_offsets = None,
         velocity = None,
@@ -66,7 +66,7 @@ class Simulator(object):
         self.velocity = velocity
         self.fov_lidar = fov_lidar
         self.z_offsets = z_offsets
-        self.alpha_offsets = alpha_offsets
+        self.laser_offsets = laser_offsets
         self.R = R
         self.T = T
 
@@ -255,39 +255,41 @@ class Simulator(object):
             self.log("[INFO] loaded model.")
             return
         
+        if False:
         
-        if "laser_strength" in checkpoint_dict:
-            self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
-            print("laser_strength loaded")
-        else:
-            print("laser_strength not found in checkpoint")
-        if "z_offsets" in checkpoint_dict:
-            self.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
-            print("z_offsets loaded")
+            if "laser_strength" in checkpoint_dict:
+                self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
+                print("laser_strength loaded")
+            else:
+                print("laser_strength not found in checkpoint")
 
-        if "fov_lidar" in checkpoint_dict:
-            self.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
-            print("fov_lidar loaded")
+            if "z_offsets" in checkpoint_dict:
+                self.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
+                print("z_offsets loaded")
 
-        if "alpha_offsets" in checkpoint_dict:
-            self.alpha_offsets = torch.nn.Parameter(checkpoint_dict['alpha_offsets'].to(self.device))
-            print("alpha_offsets loaded")
+            if "fov_lidar" in checkpoint_dict:
+                self.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
+                print("fov_lidar loaded")
 
-        if "laser_offsets" in checkpoint_dict:
-            self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
-            print("laser_offsets loaded")
+            if "laser_offsets" in checkpoint_dict:
+                self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
+                print("laser_offsets loaded")
 
-        if "velocity" in checkpoint_dict:
-            self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
-            print("velocity loaded")
+            if "laser_offsets" in checkpoint_dict:
+                self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
+                print("laser_offsets loaded")
 
-        if "R" in checkpoint_dict:
-            self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
-            print("R loaded")
+            if "velocity" in checkpoint_dict:
+                self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
+                print("velocity loaded")
 
-        if "T" in checkpoint_dict:
-            self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
-            print("T loaded")
+            if "R" in checkpoint_dict:
+                self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
+                print("R loaded")
+
+            if "T" in checkpoint_dict:
+                self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
+                print("T loaded")
 
         missing_keys, unexpected_keys = self.model.load_state_dict(
             checkpoint_dict["model"], strict=False

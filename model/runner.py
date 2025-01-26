@@ -138,12 +138,12 @@ def plot_velocity(data, scale):
 def plot_laser_offset(fov, z_offsets, alpha_offset):
     import matplotlib.pyplot as plt
 
-    # Number of lines is number of alpha_offsets + 4
+    # Number of lines is number of laser_offsets + 4
     num_lines = len(alpha_offset) + 4
 
     #z_offsets[0] = z_offsets[1]
 
-    # Pad alpha_offsets with 0 at beginning and end, and two 0 after the first half
+    # Pad laser_offsets with 0 at beginning and end, and two 0 after the first half
     half = len(alpha_offset) // 2
     padded_alpha_offset = [0] + list(alpha_offset[:half]) + [0, 0] + list(alpha_offset[half:]) + [0]
 
@@ -161,7 +161,7 @@ def plot_laser_offset(fov, z_offsets, alpha_offset):
     angles_first_half = np.radians(angles_first_half)
     angles_second_half = np.radians(angles_second_half)
 
-    # Apply alpha_offsets to angles
+    # Apply laser_offsets to angles
     angles_first_half += np.array(padded_alpha_offset[:half_num_lines])
     angles_second_half += np.array(padded_alpha_offset[half_num_lines:])
 
@@ -434,10 +434,9 @@ class Trainer(object):
         use_tensorboardX=True,    # whether to use tensorboard for logging
         scheduler_update_every_step=False,  # whether to call scheduler.step() after every train step
         laser_strength = None,
-        laser_offsets = None,
         fov_lidar = None,
         z_offsets = None,
-        alpha_offsets = None,
+        laser_offsets = None,
         velocity = None,
         R = None,
         T = None,
@@ -472,7 +471,7 @@ class Trainer(object):
         self.velocity = velocity
         self.fov_lidar = fov_lidar
         self.z_offsets = z_offsets
-        self.alpha_offsets = alpha_offsets
+        self.laser_offsets = laser_offsets
         self.R = R
         self.T = T
 
@@ -671,7 +670,7 @@ class Trainer(object):
 
 
     @torch.cuda.amp.autocast(enabled=False)
-    def load_sensor_settings(self, data, rays_o_lidar, rays_d_lidar, motion=True):
+    def load_sensor_settings_d(self, data, rays_o_lidar, rays_d_lidar, motion=False):
 
 
         #gives line ids for each ray
@@ -788,6 +787,25 @@ class Trainer(object):
             #distance is 0s
             distances_traveled_global = torch.zeros_like(rays_o_lidar)
         return distances_traveled_global, laser_strength
+    
+
+
+
+    @torch.cuda.amp.autocast(enabled=False)
+    def load_sensor_settings(self, data, rays_o_lidar, rays_d_lidar, motion=False):
+        row_inds = data["row_inds"]  # [B, N]
+        laser_strength = self.laser_strength[row_inds,:]
+        col_inds = data["col_inds"]  # [B, N]
+
+
+        poses_lidar = data["poses_lidar"]  # [B, 4, 4]
+        poses_before = data["poses_before"]  # [B, 4, 4]
+        poses_after = data["poses_after"]  # [B, 4, 4]
+
+        interpolated_poses = self.interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=1024)  # [B, 1024, 4, 4]
+
+        return interpolated_poses, laser_strength
+        
 
     def train_step(self, data):
         # Initialize all returned values
@@ -834,7 +852,7 @@ class Trainer(object):
         gt_raydrop_smooth = gt_raydrop.clamp(smooth, 1-smooth)
 
         #offset loss is difference between offsets and 0.075
-        offset_loss = torch.abs(torch.abs(self.z_offsets[0]-self.z_offsets[1]) - 0.075).mean()
+        #offset_loss = torch.abs(torch.abs(self.z_offsets[0]-self.z_offsets[1]) - 0.075).mean()
 
         #strength loss that punishes values above 1 
         strength_loss = torch.relu(laser_strength - 1.0)
@@ -844,7 +862,7 @@ class Trainer(object):
             + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop_smooth)
             + self.opt.alpha_i * self.criterion["intensity"](pred_intensity, gt_intensity)
             +  0.01*strength_loss.mean()
-            + 0.001*offset_loss
+         #   + 0.001*offset_loss
 
         )
         pred_intensity = pred_intensity.unsqueeze(-1)
@@ -1144,7 +1162,7 @@ class Trainer(object):
             for i in range(self.laser_strength.shape[1]):
                 plot_all(self.laser_strength,i)
 
-        plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.alpha_offsets.detach().cpu().numpy())
+        plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.laser_offsets.detach().cpu().numpy())
 
         plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), self.opt.scale)
 
@@ -1461,10 +1479,11 @@ class Trainer(object):
 
                 lidar_K = loader._data.intrinsics_lidar.cpu().detach().numpy()
                 z_offsets = self.opt.z_offsets.cpu().detach().numpy()
+                laser_offsets = self.opt.laser_offsets.cpu().detach().numpy()
 
 
                 pred_lidar = pano_to_lidar(
-                    pred_depth / self.opt.scale, lidar_K, z_offsets
+                    pred_depth / self.opt.scale, lidar_K, z_offsets, laser_offsets
                 )
 
                 np.save(
@@ -1678,7 +1697,7 @@ class Trainer(object):
             "stats": self.stats,
             "laser_strength": self.laser_strength.detach().cpu(),
             "laser_offsets": self.laser_offsets.detach().cpu(),
-            "alpha_offsets": self.alpha_offsets.detach().cpu(),
+            "laser_offsets": self.laser_offsets.detach().cpu(),
             "z_offsets": self.z_offsets.detach().cpu(),
             "fov_lidar": self.fov_lidar.detach().cpu(),
             "R": self.R.detach().cpu(),
@@ -1749,34 +1768,40 @@ class Trainer(object):
 
         if "laser_strength" in checkpoint_dict:
             self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
+            #add laser_strength to optimizer
+            self.optimizer.add_param_group({'params': self.laser_strength, 'lr': self.optimizer.lr *  0.1})
             print("laser_strength loaded")
+
 
         if "z_offsets" in checkpoint_dict:
             self.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
+            self.optimizer.add_param_group({'params': self.z_offsets, 'lr': self.optimizer.lr *  0.001})
+
             print("z_offsets loaded")
 
         if "fov_lidar" in checkpoint_dict:
             self.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
             print("fov_lidar loaded")
-
-        if "alpha_offsets" in checkpoint_dict:
-            self.alpha_offsets = torch.nn.Parameter(checkpoint_dict['alpha_offsets'].to(self.device))
-            print("alpha_offsets loaded")
+            self.optimizer.add_param_group({'params': self.fov_lidar, 'lr': self.optimizer.lr *  0.001})
 
         if "laser_offsets" in checkpoint_dict:
             self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
             print("laser_offsets loaded")
+            self.optimizer.add_param_group({'params': self.laser_offsets, 'lr': self.optimizer.lr *  0.001})
 
         if "velocity" in checkpoint_dict:
             self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
+            self.optimizer.add_param_group({'params': self.velocity, 'lr': self.optimizer.lr *  0.001})
             print("velocity loaded")
 
         if "R" in checkpoint_dict:
             self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
+            self.optimizer.add_param_group({'params': self.R, 'lr': self.optimizer.lr *  0.1})
             print("R loaded")
 
         if "T" in checkpoint_dict:
             self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
+            self.optimizer.add_param_group({'params': self.T, 'lr': self.optimizer.lr *  0.1})
             print("T loaded")
 
         if lidar_only:

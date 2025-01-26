@@ -125,6 +125,7 @@ def _get_lidar_rays(sequence_id, opt, device, interpolation):
     sequence_name = "2013_05_28_drive_0000"
     s_frame_id, e_frame_id = _get_frame_ids(sequence_id)
     frame_ids = list(range(s_frame_id, e_frame_id + 1))
+    print(frame_ids)
     print(f"Simulation using sequence {s_frame_id}-{e_frame_id}")
 
     # Load KITTI-360 dataset.
@@ -252,7 +253,7 @@ def main():
     T = torch.zeros((num_frames, 3))
 
     laser_lines = 64
-    alpha_offsets = torch.zeros(laser_lines-4)
+    laser_offsets = torch.zeros(laser_lines-4)
 
     
     laser_strengths = torch.zeros((laser_lines, 2))
@@ -272,19 +273,19 @@ def main():
         use_refine=opt.use_refine,
         fov_lidar=opt.fov_lidar,
         z_offsets=opt.z_offsets,
-        alpha_offsets=alpha_offsets,
+        laser_offsets=laser_offsets,
         R = R,
         T = T,
     )
 
-    #extend alpha_offsets  and laser_strengths from laser_lines to h_lidar
+    #extend laser_offsets  and laser_strengths from laser_lines to h_lidar
     if opt.H_lidar > laser_lines:
         num_new = opt.H_lidar - laser_lines
         # get num_new, 2 random values between 0 and laser_lines
         random_indices = torch.randint(0, laser_lines, (num_new, 2))
         # random factor between 0 and 1
         random_factors = torch.rand((num_new))
-        extra_alpha_offsets = alpha_offsets[random_indices[:, 0]] * random_factors + alpha_offsets[random_indices[:, 1]] * (1 - random_factors)
+        extra_laser_offsets = laser_offsets[random_indices[:, 0]] * random_factors + laser_offsets[random_indices[:, 1]] * (1 - random_factors)
         extra_laser_strengths = laser_strengths[random_indices[:, 0]] * random_factors + laser_strengths[random_indices[:, 1]] * (1 - random_factors)
         
         # Total length after extension
@@ -296,23 +297,23 @@ def main():
         extra_indices = torch.tensor([i for i in range(total_length) if i not in original_indices])
 
         # Create new tensors for interleaving
-        new_alpha_offsets = torch.zeros(total_length, dtype=alpha_offsets.dtype, device=alpha_offsets.device)
+        new_laser_offsets = torch.zeros(total_length, dtype=laser_offsets.dtype, device=laser_offsets.device)
         new_laser_strengths = torch.zeros(total_length, dtype=laser_strengths.dtype, device=laser_strengths.device)
 
         # Assign original values
-        new_alpha_offsets[original_indices] = alpha_offsets
+        new_laser_offsets[original_indices] = laser_offsets
         new_laser_strengths[original_indices] = laser_strengths
 
         # Assign extra values
-        new_alpha_offsets[extra_indices] = extra_alpha_offsets
+        new_laser_offsets[extra_indices] = extra_laser_offsets
         new_laser_strengths[extra_indices] = extra_laser_strengths
 
         # Update the original tensors
-        alpha_offsets = new_alpha_offsets
+        laser_offsets = new_laser_offsets
         laser_strengths = new_laser_strengths
     
     elif opt.H_lidar < laser_lines:
-        alpha_offsets = alpha_offsets[:opt.H_lidar]
+        laser_offsets = laser_offsets[:opt.H_lidar]
         laser_strengths = laser_strengths[:opt.H_lidar]
 
 

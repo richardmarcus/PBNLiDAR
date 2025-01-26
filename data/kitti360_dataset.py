@@ -72,7 +72,7 @@ class KITTI360Dataset(BaseDataset):
     num_rays_lidar: int = 4096
     fov_lidar: list = field(default_factory=list)  # fov_up, fov [2.0, 26.9]
     z_offsets: list = field(default_factory=list)  # z_offset, z_offset_bot
-    alpha_offsets: list = field(default_factory=list)  # alpha_offset, alpha_offset_bot
+    laser_offsets: list = field(default_factory=list)  # alpha_offset, alpha_offset_bot
     R: torch.Tensor = None
     T: torch.Tensor = None
 
@@ -133,6 +133,7 @@ class KITTI360Dataset(BaseDataset):
             self.split = 'train'
             self.num_rays_lidar = -1
 
+      
         # load nerf-compatible format data.
         print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_{self.split}.json"))
 
@@ -234,6 +235,7 @@ class KITTI360Dataset(BaseDataset):
         #print(poses_lidar)
 
         #print(self.z_offsets, self.fov_lidar)
+        #print(self.R.shape, self.T.shape, index)
 
         R = self.R[index]
         T = self.T[index]
@@ -289,7 +291,7 @@ class KITTI360Dataset(BaseDataset):
             self.H_lidar,
             self.W_lidar,
             self.z_offsets,
-            self.alpha_offsets,
+            self.laser_offsets,
             self.num_rays_lidar,
             self.patch_size_lidar,
             self.scale
@@ -334,9 +336,12 @@ class KITTI360Dataset(BaseDataset):
         #if self.val_ids exist
         if hasattr(self, 'val_ids'):
             indices = self.val_ids
-            print("val_ids", indices)
+            #to list
+            indices = list(indices)
+            print(indices, list(range(size)))
         else:
             indices = list(range(size))
+            print(indices)
 
         #list(range(1,size+1)),
         #list(range(size)),

@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import cv2
-from utils.convert import lidar_to_pano_with_intensities
+from utils.convert import lidar_to_pano_with_intensities, compare_lidar_to_pano_with_intensities
 
 
 def get_arg_parser():
@@ -25,13 +25,36 @@ def get_arg_parser():
     )
     parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
-    
+    parser.add_argument("--laser_offsets", type=float, nargs="*", default=0, help="offset of lasers")
     return parser
 
 
 def LiDAR_2_Pano_KITTI(
-    local_points_with_intensities, lidar_H, lidar_W, intrinsics, z_offsets, max_depth=80.0
+    local_points_with_intensities, lidar_H, lidar_W, intrinsics, z_offsets, laser_offsets, max_depth=80.0
 ):
+    points = local_points_with_intensities[:, :3]
+
+    mask = np.ones(points.shape[0], dtype=bool)
+    mask = np.linalg.norm(points, axis=1) > 2.5
+    #also mask distance greater than 80m and lower than 2m
+    mask = mask & (np.linalg.norm(points, axis=1) < 80) &  (points[:, 2] > -2)
+    local_points_with_intensities = local_points_with_intensities[mask]
+
+    y_r, y_r2 = compare_lidar_to_pano_with_intensities(
+        local_points_with_intensities=local_points_with_intensities,
+        lidar_H=lidar_H,
+        lidar_W=lidar_W,
+        lidar_K=intrinsics,
+        z_offsets=z_offsets,
+        max_depth=max_depth
+    )
+    ring_ids = np.concatenate((y_r, y_r2+32))
+    spread_laser_offsets = laser_offsets[ring_ids.astype(np.int32)]
+
+    print(local_points_with_intensities.shape, spread_laser_offsets.shape)
+    assert local_points_with_intensities.shape[0] == spread_laser_offsets.shape[0]
+
+
     pano, intensities = lidar_to_pano_with_intensities(
         local_points_with_intensities=local_points_with_intensities,
         lidar_H=lidar_H,
@@ -39,7 +62,10 @@ def LiDAR_2_Pano_KITTI(
         lidar_K=intrinsics,
         z_offsets=z_offsets,
         max_depth=max_depth,
+        laser_offsets= spread_laser_offsets
     )
+
+
     range_view = np.zeros((lidar_H, lidar_W, 3))
     range_view[:, :, 1] = intensities
     range_view[:, :, 2] = pano
@@ -51,6 +77,7 @@ def generate_train_data(
     W,
     intrinsics,
     z_offsets,
+    laser_offsets,
     lidar_paths,
     out_dir,
     points_dim,
@@ -69,18 +96,18 @@ def generate_train_data(
     for lidar_path in tqdm(lidar_paths):
         point_cloud = np.fromfile(lidar_path, dtype=np.float32)
         point_cloud = point_cloud.reshape((-1, points_dim))
-        pano = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics, z_offsets)
+        pano = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics, z_offsets, laser_offsets)
         frame_name = lidar_path.split("/")[-1]
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
         #cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
-        png_frame_name = frame_name.replace(".npy", "_depth.png")
+        #png_frame_name = frame_name.replace(".npy", "_depth.png")
         #print(f"Saved pic {out_dir / png_frame_name}")
         #exit()
 
 
-def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets):
+def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets, laser_offsets):
     data_root = Path(__file__).parent.parent
     kitti_360_root = data_root / "kitti360" / "KITTI-360"
     kitti_360_parent_dir = kitti_360_root.parent
@@ -107,6 +134,7 @@ def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets):
         W=W,
         intrinsics=intrinsics,
         z_offsets=z_offsets,
+        laser_offsets=laser_offsets,
         lidar_paths=lidar_paths,
         out_dir=out_dir,
         points_dim=4,
@@ -118,6 +146,8 @@ def main():
     args = parser.parse_args()
     fov_lidar = args.fov_lidar
     z_offsets = args.z_offsets
+    laser_offsets = args.laser_offsets
+    laser_offsets = np.array(laser_offsets, dtype=np.float32)
 
     # Check dataset.
     if args.dataset == "kitti360":
@@ -157,7 +187,7 @@ def main():
             raise ValueError(f"Invalid sequence id: {sequence_id}")
         
         print(f"Generate rangeview from {frame_start} to {frame_end} ...")
-        create_kitti_rangeview(frame_start, frame_end, fov_lidar, z_offsets)
+        create_kitti_rangeview(frame_start, frame_end, fov_lidar, z_offsets, laser_offsets)
 
 
 if __name__ == "__main__":
