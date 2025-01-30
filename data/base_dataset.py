@@ -205,6 +205,7 @@ def get_lidar_rays(poses, intrinsics, H, W, z_offsets, laser_offsets, N=-1, patc
     directions = torch.cat([directions, directions_bottom], dim=1)
     # directions = directions / torch.norm(directions, dim=-1, keepdim=True)
     '''
+
     rays_d = directions @ poses[:, :3, :3].transpose(-1, -2)  # (B, N, 3)
     rays_o = poses[..., :3, 3]  # [B, 3]
     rays_o = rays_o[:, None, :].expand_as(rays_d)  # [B, N, 3]

@@ -432,11 +432,11 @@ def main():
 
         optimizer = lambda model: torch.optim.Adam(
             model.get_params(opt.lr) 
-            + [{"params": [laser_strengths], "lr": 0.1 * opt.lr}] 
+            #+ [{"params": [laser_strengths], "lr": 0.1 * opt.lr}] 
             #+ [{"params": [opt.z_offsets], "lr": 0.001 * opt.lr}] 
             #+ [{"params" :[opt.fov_lidar], "lr": 0.001* opt.lr}]
-            #+ [{"params": [R], "lr": 0.1 * opt.lr}]
-            #+ [{"params": [T], "lr": 0.1 * opt.lr}]
+            + [{"params": [R], "lr": 0.001 * opt.lr}]
+            #+ [{"params": [T], "lr": 0.001 * opt.lr}]
             #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}]
             ,  
             betas=(0.9, 0.99),

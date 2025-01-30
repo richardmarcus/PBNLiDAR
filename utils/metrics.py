@@ -92,7 +92,7 @@ class DepthMeter:
 
     def write(self, writer, global_step, prefix="", suffix=""):
         writer.add_scalar(
-            os.path.join(prefix, f"depth error{suffix}"), self.measure()[0], global_step
+            os.path.join(prefix, f"depth_error{suffix}"), self.measure()[0], global_step
         )
 
     def report(self):
@@ -167,7 +167,7 @@ class IntensityMeter:
 
     def write(self, writer, global_step, prefix="", suffix=""):
         writer.add_scalar(
-            os.path.join(prefix, f"intensity error{suffix}"), self.measure()[0], global_step
+            os.path.join(prefix, f"intensity_error{suffix}"), self.measure()[0], global_step
         )
 
     def report(self):
@@ -225,7 +225,7 @@ class RaydropMeter:
         return np.array(self.V).mean(0)
 
     def write(self, writer, global_step, prefix="", suffix=""):
-        writer.add_scalar(os.path.join(prefix, "raydrop error"), self.measure()[0], global_step)
+        writer.add_scalar(os.path.join(prefix, "raydrop_error"), self.measure()[0], global_step)
 
     def report(self):
         return f"Rdrop_error (RMSE, Acc, F1) = {self.measure()}"

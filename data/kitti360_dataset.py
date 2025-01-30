@@ -133,6 +133,12 @@ class KITTI360Dataset(BaseDataset):
             self.split = 'train'
             self.num_rays_lidar = -1
 
+        if self.split == "val":
+            self.split = "test"
+
+        if self.split == "train":
+            self.split = "all"
+
       
         # load nerf-compatible format data.
         print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_{self.split}.json"))

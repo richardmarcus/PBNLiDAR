@@ -29,9 +29,140 @@ from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist
 from utils.convert import pano_to_lidar
 from utils.misc import point_removal
 from data.kitti360_dataset import vec2skew, Exp
+import kornia
 
+from torch import FloatTensor, LongTensor, Tensor, Size, lerp, zeros_like
+from torch.linalg import norm
+
+def slerp0(q1, q2, t):
+    # Compute the cosine of the angle between the quaternions
+    cos_theta = torch.sum(q1 * q2, dim=-1, keepdim=True)
+    
+    # If cos_theta < 0, negate one quaternion to ensure shortest path
+    q2 = torch.where(cos_theta < 0, -q2, q2)
+    cos_theta = torch.abs(cos_theta)
+    
+    # If quaternions are very close, use linear interpolation
+    theta = torch.acos(torch.clamp(cos_theta, -1.0, 1.0))
+    sin_theta = torch.sin(theta)
+    
+    # Avoid division by zero
+    ratio1 = torch.where(sin_theta > 1e-6,
+                        torch.sin((1 - t) * theta) / sin_theta,
+                        1 - t)
+    ratio2 = torch.where(sin_theta > 1e-6,
+                        torch.sin(t * theta) / sin_theta,
+                        t)
+    
+    return ratio1 * q1 + ratio2 * q2
+def slerp(v0: FloatTensor, v1: FloatTensor, t: FloatTensor, DOT_THRESHOLD=0.9995):
+    '''
+    Spherical linear interpolation
+    Args:
+        v0: Starting vector
+        v1: Final vector
+        t: Float value between 0.0 and 1.0
+        DOT_THRESHOLD: Threshold for considering the two vectors as
+                                colinear. Not recommended to alter this.
+    Returns:
+        Interpolation vector between v0 and v1
+    '''
+    assert v0.shape == v1.shape, "shapes of v0 and v1 must match"
+
+    # Normalize the vectors to get the directions and angles
+    v0_norm: FloatTensor = norm(v0, dim=-1)
+    v1_norm: FloatTensor = norm(v1, dim=-1)
+
+    v0_normed: FloatTensor = v0 / v0_norm.unsqueeze(-1)
+    v1_normed: FloatTensor = v1 / v1_norm.unsqueeze(-1)
+
+    # Dot product with the normalized vectors
+    dot: FloatTensor = (v0_normed * v1_normed).sum(-1)
+    dot_mag: FloatTensor = dot.abs()
+
+    # if dp is NaN, it's because the v0 or v1 row was filled with 0s
+    # If absolute value of dot product is almost 1, vectors are ~colinear, so use lerp
+    gotta_lerp: LongTensor = dot_mag.isnan() | (dot_mag > DOT_THRESHOLD)
+    can_slerp: LongTensor = ~gotta_lerp
+
+    t_batch_dim_count: int = max(0, t.dim()-v0.dim()) if isinstance(t, Tensor) else 0
+    t_batch_dims: Size = t.shape[:t_batch_dim_count] if isinstance(t, Tensor) else Size([])
+    out: FloatTensor = zeros_like(v0.expand(*t_batch_dims, *[-1]*v0.dim()))
+
+    # if no elements are lerpable, our vectors become 0-dimensional, preventing broadcasting
+    if gotta_lerp.any():
+        lerped: FloatTensor = lerp(v0, v1, t)
+
+        out: FloatTensor = lerped.where(gotta_lerp.unsqueeze(-1), out)
+
+    # if no elements are slerpable, our vectors become 0-dimensional, preventing broadcasting
+    if can_slerp.any():
+
+        # Calculate initial angle between v0 and v1
+        theta_0: FloatTensor = dot.arccos().unsqueeze(-1)
+        sin_theta_0: FloatTensor = theta_0.sin()
+        # Angle at timestep t
+        theta_t: FloatTensor = theta_0 * t
+        sin_theta_t: FloatTensor = theta_t.sin()
+        # Finish the slerp algorithm
+        s0: FloatTensor = (theta_0 - theta_t).sin() / sin_theta_0
+        s1: FloatTensor = sin_theta_t / sin_theta_0
+        slerped: FloatTensor = s0 * v0 + s1 * v1
+
+        out: FloatTensor = slerped.where(can_slerp.unsqueeze(-1), out)
+  
+    return out
 
 descriptors = ["mult_strength", "add_strength", "x_offset", "y_offset", "z_offset", "x_dir", "y_dir", "z_dir"]
+
+def interpolate_poses(pose, pose_before, pose_after, num_steps=1024):
+    # Generate interpolation factors
+    interpolation_factors = torch.linspace(.5, 1, steps=num_steps//2, device=pose.device).view(-1, 1)  # Shape: [num_steps, 1]
+
+    # Decompose the 4x4 matrices into rotation (3x3) and translation (3x1)
+    rotation_before = pose_before[:, :3, :3]  # [B, 3, 3]
+    rotation_after = pose_after[:, :3, :3]  # [B, 3, 3]
+    rotation = pose[:, :3, :3]  # [B, 3, 3]
+    translation = pose[:, :3, 3]  # [B, 3]
+    translation_before = pose_before[:, :3, 3]  # [B, 3]
+    translation_after = pose_after[:, :3, 3]  # [B, 3]
+
+    # Convert rotations to quaternions for SLERP interpolation
+    quaternion_before = kornia.geometry.conversions.rotation_matrix_to_quaternion(rotation_before)  # [B, 4]
+    quaternion = kornia.geometry.conversions.rotation_matrix_to_quaternion(rotation)  # [B, 4]
+    quaternion_after = kornia.geometry.conversions.rotation_matrix_to_quaternion(rotation_after)  # [B, 4]
+
+    # SLERP interpolation for rotations
+    quaternions_interpolated_before = slerp(quaternion_before.unsqueeze(1), quaternion.unsqueeze(1),interpolation_factors)  # [B, num_steps, 4]
+
+    quaternions_interpolated_after = slerp(quaternion.unsqueeze(1), quaternion_after.unsqueeze(1), interpolation_factors-0.5)  # [B, num_steps, 4]
+
+    #concate both
+    quaternions_interpolated = torch.cat([quaternions_interpolated_before, quaternions_interpolated_after], dim=1)
+
+    # Convert interpolated quaternions back to rotation matrices
+    rotations_interpolated = kornia.geometry.conversions.quaternion_to_rotation_matrix(quaternions_interpolated)  # [B, num_steps, 3, 3]
+
+    # Linear interpolation for translations
+
+    translations_interpolated_before = translation.unsqueeze(1) * (interpolation_factors) + \
+                                translation_before.unsqueeze(1) * (1-interpolation_factors)  # [B, num_steps, 3]
+    
+    translations_interpolated_after = translation.unsqueeze(1) * (1.5-interpolation_factors) + translation_after.unsqueeze(1) * (interpolation_factors-.5)  # [B, num_steps, 3]
+    
+    translations_interpolated = torch.cat([translations_interpolated_before, translations_interpolated_after], dim=1)
+
+    # Combine interpolated rotations and translations into 4x4 matrices
+    poses_interpolated = torch.eye(4, device=pose.device).repeat(pose_before.size(0), num_steps, 1, 1)  # [B, num_steps, 4, 4]
+    poses_interpolated[:, :, :3, :3] =rotations_interpolated  # Set rotations
+    poses_interpolated[:, :, :3, 3] = translations_interpolated  # Set translations
+
+
+    
+
+    return poses_interpolated
+
+
 # Function to compute the rotation matrix from a batch of axis-angle vectors
 def axis_angle_vector_to_rotation_matrix(axis_angle_vectors):
     # Compute angles and normalize axes
@@ -138,14 +269,9 @@ def plot_velocity(data, scale):
 def plot_laser_offset(fov, z_offsets, alpha_offset):
     import matplotlib.pyplot as plt
 
-    # Number of lines is number of laser_offsets + 4
-    num_lines = len(alpha_offset) + 4
 
-    #z_offsets[0] = z_offsets[1]
-
-    # Pad laser_offsets with 0 at beginning and end, and two 0 after the first half
-    half = len(alpha_offset) // 2
-    padded_alpha_offset = [0] + list(alpha_offset[:half]) + [0, 0] + list(alpha_offset[half:]) + [0]
+    num_lines = len(alpha_offset) 
+    padded_alpha_offset = list(alpha_offset)
 
     # Split lines into two halves
     half_num_lines = num_lines // 2
@@ -157,13 +283,15 @@ def plot_laser_offset(fov, z_offsets, alpha_offset):
     angles_first_half = np.linspace(fov[0], lower_fov_up, half_num_lines)
     angles_second_half = np.linspace(fov[2], lower_fov_down, half_num_lines)
 
-    #convert to radians
-    angles_first_half = np.radians(angles_first_half)
-    angles_second_half = np.radians(angles_second_half)
 
     # Apply laser_offsets to angles
     angles_first_half += np.array(padded_alpha_offset[:half_num_lines])
     angles_second_half += np.array(padded_alpha_offset[half_num_lines:])
+
+    #convert to radians
+    angles_first_half = np.radians(angles_first_half)
+    angles_second_half = np.radians(angles_second_half)
+
 
     # Plotting
     plt.figure(figsize=(8, 8))
@@ -178,13 +306,13 @@ def plot_laser_offset(fov, z_offsets, alpha_offset):
     y_second_half = np.sin(angles_second_half)
 
     #use length 10
-    x_first_half *= 20
-    y_first_half *= 20
-    x_second_half *= 20
-    y_second_half *= 20
+    x_first_half *= 10
+    y_first_half *= 10
+    x_second_half *= 10
+    y_second_half *= 10
 
-    up_shift =z_offsets[0]
-    down_shift = z_offsets[1]
+    up_shift = -z_offsets[0]
+    down_shift = -z_offsets[1]
 
     #add z_offsets to y coordinates
     y_first_half += up_shift
@@ -567,6 +695,43 @@ class Trainer(object):
             self.log_ptr.flush()  # write immediately to file
 
     ### ------------------------------
+    @torch.cuda.amp.autocast(enabled=False)
+    def load_sensor_settings(self, data, rays_o_lidar, rays_d_lidar, motion=False):
+        row_inds = data["row_inds"]  # [B, N]
+        col_inds = data["col_inds"]  # [B, N]
+        laser_strength = self.laser_strength[row_inds,:]
+
+        poses_lidar = data["poses_lidar"]  # [B, 4, 4]
+        poses_before = data["poses_before"]  # [B, 4, 4]
+        poses_after = data["poses_after"]  # [B, 4, 4]
+
+        base_translation = poses_lidar[:, :3, 3]  # [B, 3]
+        
+
+        interpolated_poses = interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=1024)  # [B, 1024, 4, 4]
+
+
+
+        interpolated_poses = interpolated_poses[:, col_inds[0]]  # Shape: [1024, 4, 4]
+
+
+
+
+        translations = interpolated_poses[:, :, :3, 3]  # [B, 1024, 3]
+
+        translation_offset = translations - base_translation# [B, 1024, 3]
+        
+        
+        base_rotation = poses_lidar[:, :3, :3]  # [B, 3, 3]
+        rotation = interpolated_poses[:, :, :3, :3]  # [B, 1024, 3, 3]
+
+        #get offset rotation matrix
+        #to get a rotation relative to base rotation we need to multiply the inverse of the base rotation
+        #with the interpolated rotation
+        relative_rotation = torch.matmul(base_rotation.unsqueeze(1).inverse(), rotation)  # [B, 1024, 3, 3]
+
+        #self.plot_poses_arrows(interpolated_poses[0], scale=1.0)  
+        return translation_offset, relative_rotation, laser_strength
 
     def offsets_from_positions(self, position, position_before, position_after, col_inds):
         # Assuming position, position_before, position_after are tensors of shape [B, 3]
@@ -602,36 +767,6 @@ class Trainer(object):
         return distance_offsets
         
 
-    def interpolate_poses(self, pose, pose_before, pose_after, num_steps=1024):
-        # Generate interpolation factors
-        interpolation_factors = torch.linspace(0, 1, steps=num_steps, device=pose.device).view(-1, 1)  # Shape: [num_steps, 1]
-
-        # Decompose the 4x4 matrices into rotation (3x3) and translation (3x1)
-        rotation_before = pose_before[:, :3, :3]  # [B, 3, 3]
-        rotation_after = pose_after[:, :3, :3]  # [B, 3, 3]
-        translation_before = pose_before[:, :3, 3]  # [B, 3]
-        translation_after = pose_after[:, :3, 3]  # [B, 3]
-
-        # Convert rotations to quaternions for SLERP interpolation
-        quaternion_before = torch.linalg.matrix_to_quaternion(rotation_before)  # [B, 4]
-        quaternion_after = torch.linalg.matrix_to_quaternion(rotation_after)  # [B, 4]
-
-        # SLERP interpolation for rotations
-        quaternions_interpolated = torch.lerp(quaternion_before.unsqueeze(1), quaternion_after.unsqueeze(1), interpolation_factors)  # [B, num_steps, 4]
-
-        # Convert interpolated quaternions back to rotation matrices
-        rotations_interpolated = torch.linalg.quaternion_to_matrix(quaternions_interpolated)  # [B, num_steps, 3, 3]
-
-        # Linear interpolation for translations
-        translations_interpolated = translation_before.unsqueeze(1) * (1 - interpolation_factors) + \
-                                    translation_after.unsqueeze(1) * interpolation_factors  # [B, num_steps, 3]
-
-        # Combine interpolated rotations and translations into 4x4 matrices
-        poses_interpolated = torch.eye(4, device=pose.device).repeat(pose_before.size(0), num_steps, 1, 1)  # [B, num_steps, 4, 4]
-        poses_interpolated[:, :, :3, :3] = rotations_interpolated  # Set rotations
-        poses_interpolated[:, :, :3, 3] = translations_interpolated  # Set translations
-
-        return poses_interpolated
 
 
 
@@ -789,23 +924,54 @@ class Trainer(object):
         return distances_traveled_global, laser_strength
     
 
+   
+
+   
 
 
-    @torch.cuda.amp.autocast(enabled=False)
-    def load_sensor_settings(self, data, rays_o_lidar, rays_d_lidar, motion=False):
-        row_inds = data["row_inds"]  # [B, N]
-        laser_strength = self.laser_strength[row_inds,:]
-        col_inds = data["col_inds"]  # [B, N]
+    def plot_poses_arrows(poses, scale=1.0):
 
+        #copy poses to cpu 
+        poses = poses.cpu().detach().numpy()
 
-        poses_lidar = data["poses_lidar"]  # [B, 4, 4]
-        poses_before = data["poses_before"]  # [B, 4, 4]
-        poses_after = data["poses_after"]  # [B, 4, 4]
+    
+        # Extract positions and rotations from poses
+        positions = poses[:, :3, 3] / scale
+        rotations = poses[:, :3, :3]
 
-        interpolated_poses = self.interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=1024)  # [B, 1024, 4, 4]
+        #get angles from rotation matrix
+        angles = np.arctan2(rotations[:, 1, 0], rotations[:, 0, 0])
 
-        return interpolated_poses, laser_strength
+        #get x and y angles
+        x = np.cos(angles)
+        y = np.sin(angles)
+
         
+        
+        # Create plot
+        plt.figure(figsize=(10, 10))
+        
+        #plot x and y positions and arrow for x and y rotation
+        plt.scatter(positions[:, 0], positions[:, 1], label='Positions', color='b')
+        plt.quiver(positions[:, 0], positions[:, 1], x, y, color='r', scale=30, width=0.005, headwidth=4, headlength=5, label='Rotations')
+        
+
+        # Set equal aspect ratio
+        plt.axis('equal')
+        plt.grid(True)
+        plt.xlabel('X')
+        plt.ylabel('Y')
+        plt.title('Vehicle Poses')
+        
+        # Save plot
+        os.makedirs('plots', exist_ok=True)
+        plt.savefig('plots/poses_arrows.png')
+        plt.close()
+
+        return 0
+
+
+    
 
     def train_step(self, data):
         # Initialize all returned values
@@ -820,16 +986,17 @@ class Trainer(object):
         time_lidar = data['time'] # [B, 1]
         images_lidar = data["images_lidar"]  # [B, N, 3]
 
-        motion_offset, laser_strength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
-  
+        motion_offset, motion_rotation, laser_strength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
+
+        #self.plot_interpolation(rays_o_lidar, rays_d_lidar, data, motion_offset, motion_rotation)
         gt_raydrop = images_lidar[:, :, 0]
         gt_intensity = images_lidar[:, :, 1] * gt_raydrop
         gt_depth = images_lidar[:, :, 2] * gt_raydrop
 
         outputs_lidar = self.model.render(
-            rays_o_lidar+motion_offset,
-            rays_d_lidar,
+            rays_o_lidar + motion_offset,
+            torch.matmul(motion_rotation, rays_d_lidar.unsqueeze(-1)).squeeze(-1),
             time_lidar,
             staged=False,
             perturb=True,
@@ -1050,15 +1217,17 @@ class Trainer(object):
         images_lidar = data["images_lidar"]  # [B, H, W, 3]
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
         #gives line ids for each ray
-        motion_offset, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        motion_offset, motion_rotation, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+
+       
 
         gt_raydrop = images_lidar[:, :, :, 0]
         gt_intensity = images_lidar[:, :, :, 1] * gt_raydrop
         gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
 
         outputs_lidar = self.model.render(
-            rays_o_lidar+motion_offset,
-            rays_d_lidar,
+            rays_o_lidar + motion_offset,
+            torch.matmul(motion_rotation, rays_d_lidar.unsqueeze(-1)).squeeze(-1),
             time_lidar,
             staged=True,
             perturb=False,
@@ -1114,11 +1283,11 @@ class Trainer(object):
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
 
 
-        motion_offset, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
-
+        motion_offset, motion_rotation, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        
         outputs_lidar = self.model.render(
-            rays_o_lidar+motion_offset,
-            rays_d_lidar,
+            rays_o_lidar + motion_offset,
+            torch.matmul(motion_rotation, rays_d_lidar.unsqueeze(-1)).squeeze(-1),
             time_lidar,
             staged=True,
             perturb=perturb,
@@ -1535,6 +1704,72 @@ class Trainer(object):
         self.log(f"==> Finished Test.")
 
 
+    def plot_interpolation(self, torch_rays_o, torch_rays_d, data, interpolated_translations, interpolated_rotations):
+            
+
+            col_inds = data["col_inds"].cpu().numpy()[0]  # [B, N]
+
+            poses_lidar = data["poses_lidar"]  # [B, 4, 4]
+            poses_before = data["poses_before"]  # [B, 4, 4]
+            poses_after = data["poses_after"]  # [B, 4, 4]
+
+
+            prev_trans = poses_before[:, :3, 3].detach().cpu().numpy()[0]
+            trans = poses_lidar[:, :3, 3].detach().cpu().numpy()[0]
+            next_trans = poses_after[:, :3, 3].detach().cpu().numpy()[0]
+
+            interpolated_forwards = interpolated_rotations[:, :3, 1].detach().cpu().numpy()[0]
+         
+            prev_forward = poses_before[:, :3, 1].detach().cpu().numpy()[0]
+            forward = poses_lidar[:, :3, 1].detach().cpu().numpy()[0]
+            next_forward = poses_after[:, :3, 1].detach().cpu().numpy()[0]
+
+
+            rays_o = torch_rays_o.detach().cpu().numpy()[0] + interpolated_translations.detach().cpu().numpy()[0]
+
+            rays_d = torch.matmul(interpolated_rotations, torch_rays_d.unsqueeze(-1)).squeeze(-1).detach().cpu().numpy()[0]
+
+            rays_d = rays_d[:, :2]
+            #normalize
+            rays_d = rays_d / np.linalg.norm(rays_d, axis=1)[:, None]*10
+            # Plot 2D rays from rays_o to direction
+
+            print(rays_o[:,0].shape, col_inds.shape, rays_d.shape)
+            # Use existing figure, just add new plots
+            q = plt.quiver(rays_o[:, 0], rays_o[:, 1],
+                    rays_d[:, 0], rays_d[:, 1],
+                    col_inds,  # Color by column index
+                    scale=20, width=0.001,
+                    cmap='winter')  # Add colormap
+            #draw dots for translation
+            plt.plot([prev_trans[0], trans[0], next_trans[0]], 
+                    [prev_trans[1], trans[1], next_trans[1]], 'k-', alpha=0.5)
+            
+            #plt.plot(trans[0], trans[1], 'ro')
+            #plt.plot(prev_trans[0], prev_trans[1], 'go')  
+            #plt.plot(next_trans[0], next_trans[1], 'bo')
+
+            # Draw forward vectors as larger arrows
+            plt.quiver([prev_trans[0], trans[0], next_trans[0]], 
+                    [prev_trans[1], trans[1], next_trans[1]],
+                    [prev_forward[0], forward[0], next_forward[0]], 
+                    [prev_forward[1], forward[1], next_forward[1]],
+                    color=['g','r','b'], scale=15, width=0.005)
+            
+            #plt.quiver(rays_o[:, 0], rays_o[:, 1], interpolated_forwards[:, 0], interpolated_forwards[:, 1], color='y', scale=10, width=0.001)
+
+            plt.colorbar(q)  # Add colorbar
+            plt.axis('equal')
+            plt.grid(True)
+            #plt.show()
+            #save
+            plt.savefig("debug_proj/rays.png")
+            print("saved to debug_proj/rays.png")
+            #clear plot
+            plt.clf()
+
+
+
     def refine(self, loader):
         if self.ema is not None:
             self.ema.copy_to() # load ema model weights
@@ -1555,7 +1790,7 @@ class Trainer(object):
             rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
 
 
-            motion_offset, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+            motion_offset, motion_rotation, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
   
             time_lidar = data['time']
             H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
@@ -1568,8 +1803,8 @@ class Trainer(object):
             with torch.cuda.amp.autocast(enabled=self.opt.fp16):
                 with torch.no_grad():
                     outputs_lidar = self.model.render(
-                        rays_o_lidar+motion_offset,
-                        rays_d_lidar,
+                        rays_o_lidar + motion_offset,
+                        torch.matmul(motion_rotation, rays_d_lidar.unsqueeze(-1)).squeeze(-1),
                         time_lidar,
                         staged=True,
                         max_ray_batch=4096,
@@ -1769,39 +2004,39 @@ class Trainer(object):
         if "laser_strength" in checkpoint_dict:
             self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
             #add laser_strength to optimizer
-            self.optimizer.add_param_group({'params': self.laser_strength, 'lr': self.optimizer.lr *  0.1})
+            self.optimizer.add_param_group({'params': self.laser_strength, 'lr': self.opt.lr *  0.1})
             print("laser_strength loaded")
 
 
         if "z_offsets" in checkpoint_dict:
             self.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
-            self.optimizer.add_param_group({'params': self.z_offsets, 'lr': self.optimizer.lr *  0.001})
+            self.optimizer.add_param_group({'params': self.z_offsets, 'lr': self.opt.lr *  0.001})
 
             print("z_offsets loaded")
 
         if "fov_lidar" in checkpoint_dict:
             self.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
             print("fov_lidar loaded")
-            self.optimizer.add_param_group({'params': self.fov_lidar, 'lr': self.optimizer.lr *  0.001})
+            self.optimizer.add_param_group({'params': self.fov_lidar, 'lr': self.opt.lr *  0.001})
 
         if "laser_offsets" in checkpoint_dict:
             self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
             print("laser_offsets loaded")
-            self.optimizer.add_param_group({'params': self.laser_offsets, 'lr': self.optimizer.lr *  0.001})
+            self.optimizer.add_param_group({'params': self.laser_offsets, 'lr': self.opt.lr *  0.001})
 
         if "velocity" in checkpoint_dict:
             self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
-            self.optimizer.add_param_group({'params': self.velocity, 'lr': self.optimizer.lr *  0.001})
+            self.optimizer.add_param_group({'params': self.velocity, 'lr': self.opt.lr *  0.001})
             print("velocity loaded")
 
         if "R" in checkpoint_dict:
             self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
-            self.optimizer.add_param_group({'params': self.R, 'lr': self.optimizer.lr *  0.1})
+            self.optimizer.add_param_group({'params': self.R, 'lr': self.opt.lr *  0.1})
             print("R loaded")
 
         if "T" in checkpoint_dict:
             self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
-            self.optimizer.add_param_group({'params': self.T, 'lr': self.optimizer.lr *  0.1})
+            self.optimizer.add_param_group({'params': self.T, 'lr': self.opt.lr *  0.1})
             print("T loaded")
 
         if lidar_only:
