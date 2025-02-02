@@ -408,16 +408,26 @@ def print_all(channel):
 
 
 def plot_direction(poses, directions, scale):
+
+    origin_rotation = poses[0, :3, :3]
+    inverse_rotation = np.linalg.inv(origin_rotation)
     base_rotations = poses[:, :3, :3]
 
     # Normalize the base rotation matrices (optional: make sure they are valid rotations)
-    base_rotations = base_rotations / np.linalg.norm(base_rotations, axis=2, keepdims=True)
+    #base_rotations = base_rotations / np.linalg.norm(base_rotations, axis=2, keepdims=True)
+
+    base_rotations = np.matmul(inverse_rotation, base_rotations)
+
 
     # Compute the rotation matrices for each axis-angle vector (batch processing)
     R_axis_angles = axis_angle_vector_to_rotation_matrix(directions)
 
+    
+
     # Apply the axis-angle rotations to the base rotations (matrix multiplication)
     final_rotations = np.matmul(R_axis_angles, base_rotations)
+    
+
 
     # Create the plot
     plt.figure(figsize=(10, 8))
@@ -505,7 +515,7 @@ def plot_direction(poses, directions, scale):
     plt.close()
 
 
-def plot_trajectory(poses, positions, scale):
+def plot_trajectory(poses, positions, rotations, scale):
     """
     Plot the trajectory of the vehicle in 3D space.
 
@@ -515,29 +525,99 @@ def plot_trajectory(poses, positions, scale):
     scale (float): Scale factor to adjust positions.
     """
     # Rescale positions
-    pose_positions = poses[:, :3, 3]
+    origin_pose = poses[0]
+    inv_pose = np.linalg.inv(origin_pose)
+    relative_poses = np.matmul(inv_pose, poses)
+    pose_positions = relative_poses[:, :3, 3]
 
     positions_off = positions + pose_positions
     positions = pose_positions / scale
     positions_off = positions_off / scale
 
+    forward_vector = relative_poses[:, :3, 1]
+    up_vector = relative_poses[:, :3, 2]
+
+    #create rotation matrix from axis angle rotations
+    rotations = axis_angle_vector_to_rotation_matrix(rotations)
+
+
+    #rotate with rotations
+    forward_vector_off = np.matmul(rotations, forward_vector[..., np.newaxis])[:, :, 0]
+    up_vector_off = np.matmul(rotations, up_vector[..., np.newaxis])[:, :, 0]
+
+    #take only x and y and normalize
+    forward_vector = forward_vector[:, :2] / np.linalg.norm(forward_vector[:, :2], axis=1, keepdims=True)
+
+    up_vector = up_vector[:, [0,2]] / np.linalg.norm(up_vector[:,[0,2]], axis=1, keepdims=True)
+
+    forward_vector_off = forward_vector_off[:, :2] / np.linalg.norm(forward_vector_off[:, :2], axis=1, keepdims=True)
+
+    up_vector_off = up_vector_off[:, [0,2]] / np.linalg.norm(up_vector_off[:,[0,2]], axis=1, keepdims=True)
+
 
     # Plot the trajectory in 2d with connected points
-    plt.figure(figsize=(10, 8), dpi=300)
+    plt.figure(figsize=(10, 2), dpi=2000)
     plt.plot(positions[:, 0], positions[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
     #add second trajectory
     plt.plot(positions_off[:, 0], positions_off[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
+
+
+    # Plot forward vectors using quiver
+    plt.quiver(positions[:, 0], positions[:, 1], 
+              forward_vector[:, 0], forward_vector[:, 1], 
+              color='r', scale=50, width=0.0002,
+              headwidth=4, headlength=6)
+    
+    plt.quiver(positions_off[:, 0], positions_off[:, 1],
+                forward_vector_off[:, 0], forward_vector_off[:, 1],
+                color='b', scale=50, width=0.0002,
+                headwidth=4, headlength=6)
+
+
+
     plt.title("Vehicle Trajectory (2D)", fontsize=14)
     plt.xlabel("X Position")
     plt.ylabel("Y Position")
     plt.grid(True)
     plt.minorticks_on()
     plt.grid(which='both', linestyle='--', linewidth=0.5)
+    #make x and y scale equal
+    plt.axis('equal')
     plt.legend()
     plt.savefig("plots/trajectory_2d.png")
     #close
     plt.clf()
     plt.close()
+
+    #now x and z
+    plt.figure(figsize=(10, 2), dpi=1000)
+    plt.plot(positions[:, 0], positions[:, 2], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
+    #add second trajectory
+    plt.plot(positions_off[:, 0], positions_off[:, 2], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
+
+    plt.quiver(positions[:, 0], positions[:, 2],
+                up_vector[:, 0], up_vector[:, 1],
+                color='r', scale=100, width=0.0005,
+                headwidth=4, headlength=6)
+    
+    plt.quiver(positions_off[:, 0], positions_off[:, 2],    
+                up_vector_off[:, 0], up_vector_off[:, 1],
+                color='b', scale=100, width=0.0005,
+                headwidth=4, headlength=6)
+    
+    plt.title("Vehicle Trajectory (2D)", fontsize=14)
+    plt.xlabel("X Position")
+    plt.ylabel("Z Position")
+    plt.grid(True)
+    plt.minorticks_on()
+    plt.axis('equal')
+    plt.grid(which='both', linestyle='--', linewidth=0.5)
+    plt.legend()
+    plt.savefig("plots/trajectory_2d_xz.png")
+    #close
+    plt.clf()
+    plt.close()
+
 
 
 class Trainer(object):
@@ -1039,11 +1119,11 @@ class Trainer(object):
         loss = lidar_loss.sum()
 
         # additional CD Loss
-        pred_lidar = rays_d_lidar * pred_depth.unsqueeze(-1) / self.opt.scale
-        gt_lidar = rays_d_lidar * gt_depth.unsqueeze(-1) / self.opt.scale
-        dist1, dist2, _, _ = self.cham_fn(pred_lidar, gt_lidar)
-        chamfer_loss = (dist1 + dist2).mean() * 0.5
-        loss = loss + chamfer_loss
+        #pred_lidar = rays_d_lidar * pred_depth.unsqueeze(-1) / self.opt.scale
+        #gt_lidar = rays_d_lidar * gt_depth.unsqueeze(-1) / self.opt.scale
+        #dist1, dist2, _, _ = self.cham_fn(pred_lidar, gt_lidar)
+        #chamfer_loss = (dist1 + dist2).mean() * 0.5
+        #loss = loss + chamfer_loss
 
         if self.opt.flow_loss:
             frame_idx = int(time_lidar * (self.opt.num_frames - 1))
@@ -1333,9 +1413,9 @@ class Trainer(object):
 
         plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.laser_offsets.detach().cpu().numpy())
 
-        plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), self.opt.scale)
+        plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(),self.opt.scale)
 
-        plot_direction(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(), self.opt.scale)
+        #plot_direction(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(), self.opt.scale)
 
         plt.close('all')
         total_loss = 0

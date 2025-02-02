@@ -316,7 +316,7 @@ def main():
     
     num_frames = num_frames_from_sequence_id(opt.sequence_id)
     #pose_offsets R and T for each frame
-    R = torch.zeros((num_frames, 3))
+    R = torch.zeros((num_frames, 4))
     #R = torch.rand((num_frames, 3), requires_grad=True)*0.02-0.01
     T = torch.zeros((num_frames, 3))
     #random between -0.1 and 0.1
@@ -435,8 +435,9 @@ def main():
             #+ [{"params": [laser_strengths], "lr": 0.1 * opt.lr}] 
             #+ [{"params": [opt.z_offsets], "lr": 0.001 * opt.lr}] 
             #+ [{"params" :[opt.fov_lidar], "lr": 0.001* opt.lr}]
-            + [{"params": [R], "lr": 0.001 * opt.lr}]
-            #+ [{"params": [T], "lr": 0.001 * opt.lr}]
+            #
+             + [{"params": [R], "lr": 0.01 * opt.lr}]
+            #+ [{"params": [T], "lr": 0.0001 * opt.lr}]
             #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}]
             ,  
             betas=(0.9, 0.99),
