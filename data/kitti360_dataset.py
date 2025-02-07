@@ -245,8 +245,8 @@ class KITTI360Dataset(BaseDataset):
 
         R = self.R[index]
         T = self.T[index]
+        
         R = Exp(R)  # (B, 3, 3)
-
         pose_off = torch.cat([R, T.unsqueeze(-1)], dim=-1)
         #make 3x4 matrix
         pose_off = torch.cat([pose_off, torch.zeros_like(pose_off[:, 0:1])], dim=1)  # (B, 4, 4)

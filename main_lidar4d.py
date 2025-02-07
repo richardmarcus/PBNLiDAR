@@ -41,6 +41,7 @@ def get_arg_parser():
     parser.add_argument("--far_lidar", type=float, default=81.0, help="maximum far distance for lidar")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
     parser.add_argument("--num_frames", type=int, default=51, help="total number of sequence frames")
+    parser.add_argument("--experiment_name", type=str, default="lidar4d", help="experiment name")
 
     ### LiDAR4D
     parser.add_argument("--min_resolution", type=int, default=32, help="minimum resolution for planes")
@@ -316,11 +317,11 @@ def main():
     
     num_frames = num_frames_from_sequence_id(opt.sequence_id)
     #pose_offsets R and T for each frame
-    R = torch.zeros((num_frames, 4))
-    #R = torch.rand((num_frames, 3), requires_grad=True)*0.02-0.01
+    R = torch.zeros((num_frames, 3))
+    #R = torch.rand((num_frames, 3), requires_grad=True)*0.4-0.2
     T = torch.zeros((num_frames, 3))
     #random between -0.1 and 0.1
-    #T = torch.rand((num_frames, 3), requires_grad=True)*0.02-0.01
+    #T = torch.rand((num_frames, 3), requires_grad=True)*0.01-0.005
     #nn parameters
     R = torch.nn.Parameter(R.to(device))
     T = torch.nn.Parameter(T.to(device))
@@ -436,8 +437,8 @@ def main():
             #+ [{"params": [opt.z_offsets], "lr": 0.001 * opt.lr}] 
             #+ [{"params" :[opt.fov_lidar], "lr": 0.001* opt.lr}]
             #
-             + [{"params": [R], "lr": 0.01 * opt.lr}]
-            #+ [{"params": [T], "lr": 0.0001 * opt.lr}]
+            + [{"params": [R], "lr": 0.01 * opt.lr}]
+            + [{"params": [T], "lr": 0.01 * opt.lr}]
             #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}]
             ,  
             betas=(0.9, 0.99),
@@ -450,10 +451,10 @@ def main():
             optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1)
         )
 
-
+        
 
         trainer = Trainer(
-            "lidar4d",
+            opt.experiment_name,
             opt,
             model,
             device=device,

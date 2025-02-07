@@ -15,6 +15,7 @@ import cv2
 import imageio
 from matplotlib import pyplot as plt
 import numpy as np
+import pytorch3d.transforms
 import tensorboardX
 import torch
 import torch.distributed as dist
@@ -29,7 +30,9 @@ from utils.chamfer3D.dist_chamfer_3D import chamfer_3DDist
 from utils.convert import pano_to_lidar
 from utils.misc import point_removal
 from data.kitti360_dataset import vec2skew, Exp
-import kornia
+import pytorch3d
+
+
 
 from torch import FloatTensor, LongTensor, Tensor, Size, lerp, zeros_like
 from torch.linalg import norm
@@ -128,20 +131,27 @@ def interpolate_poses(pose, pose_before, pose_after, num_steps=1024):
     translation_after = pose_after[:, :3, 3]  # [B, 3]
 
     # Convert rotations to quaternions for SLERP interpolation
-    quaternion_before = kornia.geometry.conversions.rotation_matrix_to_quaternion(rotation_before)  # [B, 4]
-    quaternion = kornia.geometry.conversions.rotation_matrix_to_quaternion(rotation)  # [B, 4]
-    quaternion_after = kornia.geometry.conversions.rotation_matrix_to_quaternion(rotation_after)  # [B, 4]
+    quaternion_before = pytorch3d.transforms.matrix_to_quaternion(rotation_before)  # [B, 4]
+    quaternion = pytorch3d.transforms.matrix_to_quaternion(rotation)  # [B, 4]
+    quaternion_after = pytorch3d.transforms.matrix_to_quaternion(rotation_after)  # [B, 4]
+    # interpolate before and current
+    cos_theta = torch.sum(quaternion_before * quaternion, dim=-1)
+    quaternion = torch.where(cos_theta < 0, -quaternion, quaternion)
+    quaternions_interpolated_before = slerp(quaternion_before.unsqueeze(1), quaternion.unsqueeze(1), interpolation_factors)
 
-    # SLERP interpolation for rotations
-    quaternions_interpolated_before = slerp(quaternion_before.unsqueeze(1), quaternion.unsqueeze(1),interpolation_factors)  # [B, num_steps, 4]
-
-    quaternions_interpolated_after = slerp(quaternion.unsqueeze(1), quaternion_after.unsqueeze(1), interpolation_factors-0.5)  # [B, num_steps, 4]
+    # interpolate current and after 
+    cos_theta = torch.sum(quaternion * quaternion_after, dim=-1)
+    quaternion_after = torch.where(cos_theta < 0, -quaternion_after, quaternion_after)
+    quaternions_interpolated_after = slerp(quaternion.unsqueeze(1), quaternion_after.unsqueeze(1), interpolation_factors-0.5)
 
     #concate both
     quaternions_interpolated = torch.cat([quaternions_interpolated_before, quaternions_interpolated_after], dim=1)
 
+    # Normalize the interpolated quaternions
+    quaternions_interpolated = quaternions_interpolated / norm(quaternions_interpolated, dim=-1, keepdim=True)
+
     # Convert interpolated quaternions back to rotation matrices
-    rotations_interpolated = kornia.geometry.conversions.quaternion_to_rotation_matrix(quaternions_interpolated)  # [B, num_steps, 3, 3]
+    rotations_interpolated = pytorch3d.transforms.quaternion_to_matrix(quaternions_interpolated)  # [B, num_steps, 3, 3]
 
     # Linear interpolation for translations
 
@@ -166,7 +176,12 @@ def interpolate_poses(pose, pose_before, pose_after, num_steps=1024):
 # Function to compute the rotation matrix from a batch of axis-angle vectors
 def axis_angle_vector_to_rotation_matrix(axis_angle_vectors):
     # Compute angles and normalize axes
+
     angles = np.linalg.norm(axis_angle_vectors, axis=1)  # Magnitude gives the angle for each vector
+  
+    if np.any(angles == 0):
+        return np.eye(3)[np.newaxis, :, :]  # Return identity matrix for zero angles
+    
     axes = axis_angle_vectors / angles[:, np.newaxis]  # Normalize each axis
 
     # Extract the components of each axis (x, y, z)
@@ -524,51 +539,62 @@ def plot_trajectory(poses, positions, rotations, scale):
     positions (np.ndarray): Positions of the vehicle at each time step.
     scale (float): Scale factor to adjust positions.
     """
-    # Rescale positions
+    angle_sum = np.linalg.norm(rotations, axis=1)
+    print("Angle sum:", np.mean(angle_sum))
+
+
     origin_pose = poses[0]
     inv_pose = np.linalg.inv(origin_pose)
-    relative_poses = np.matmul(inv_pose, poses)
-    pose_positions = relative_poses[:, :3, 3]
 
-    positions_off = positions + pose_positions
-    positions = pose_positions / scale
-    positions_off = positions_off / scale
+    #create transformation matrix from positions and rotations
+    offset_rotations = axis_angle_vector_to_rotation_matrix(rotations)
+
+    #expand to 4x4 matrix and add translation (positions)
+    offset_poses = np.eye(4)[np.newaxis, :, :].repeat(poses.shape[0], axis=0)
+    offset_poses[:, :3, :3] = offset_rotations
+    offset_poses[:, :3, 3] = positions
+
+    offset_poses = np.matmul(poses, offset_poses)
+    relative_offset_poses = np.matmul(inv_pose, offset_poses)
+    relative_poses = np.matmul(inv_pose, poses)
+
+    #scale translation part
+    relative_offset_poses[:, :3, 3] /= scale
+    relative_poses[:, :3, 3] /= scale
 
     forward_vector = relative_poses[:, :3, 1]
     up_vector = relative_poses[:, :3, 2]
+    #get angle sum of rotations
 
-    #create rotation matrix from axis angle rotations
-    rotations = axis_angle_vector_to_rotation_matrix(rotations)
+    translation_diff = relative_poses[:, :3, 3] - relative_offset_poses[:, :3, 3]
+    print("Translation diff:", np.mean(np.linalg.norm(translation_diff, axis=1)))
+    
+    translation = relative_poses[:, :3, 3]
+    translation_offset = relative_offset_poses[:, :3, 3]
 
-
-    #rotate with rotations
-    forward_vector_off = np.matmul(rotations, forward_vector[..., np.newaxis])[:, :, 0]
-    up_vector_off = np.matmul(rotations, up_vector[..., np.newaxis])[:, :, 0]
 
     #take only x and y and normalize
     forward_vector = forward_vector[:, :2] / np.linalg.norm(forward_vector[:, :2], axis=1, keepdims=True)
 
     up_vector = up_vector[:, [0,2]] / np.linalg.norm(up_vector[:,[0,2]], axis=1, keepdims=True)
 
-    forward_vector_off = forward_vector_off[:, :2] / np.linalg.norm(forward_vector_off[:, :2], axis=1, keepdims=True)
-
-    up_vector_off = up_vector_off[:, [0,2]] / np.linalg.norm(up_vector_off[:,[0,2]], axis=1, keepdims=True)
-
+    forward_vector_off = relative_offset_poses[:, :3, 1] / np.linalg.norm(relative_offset_poses[:, :3, 1], axis=1, keepdims=True)
+    up_vector_off = relative_offset_poses[:, :3, 2] / np.linalg.norm(relative_offset_poses[:, :3, 2], axis=1, keepdims=True)
 
     # Plot the trajectory in 2d with connected points
-    plt.figure(figsize=(10, 2), dpi=2000)
-    plt.plot(positions[:, 0], positions[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
+    plt.figure(figsize=(10, 2), dpi=1000)
+    plt.plot(translation[:, 0], translation[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
     #add second trajectory
-    plt.plot(positions_off[:, 0], positions_off[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
+    plt.plot(translation_offset[:, 0], translation_offset[:, 1], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
 
 
     # Plot forward vectors using quiver
-    plt.quiver(positions[:, 0], positions[:, 1], 
+    plt.quiver(translation[:, 0], translation[:, 1], 
               forward_vector[:, 0], forward_vector[:, 1], 
               color='r', scale=50, width=0.0002,
               headwidth=4, headlength=6)
     
-    plt.quiver(positions_off[:, 0], positions_off[:, 1],
+    plt.quiver(translation_offset[:, 0], translation_offset[:, 1],
                 forward_vector_off[:, 0], forward_vector_off[:, 1],
                 color='b', scale=50, width=0.0002,
                 headwidth=4, headlength=6)
@@ -591,16 +617,16 @@ def plot_trajectory(poses, positions, rotations, scale):
 
     #now x and z
     plt.figure(figsize=(10, 2), dpi=1000)
-    plt.plot(positions[:, 0], positions[:, 2], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
+    plt.plot(translation[:, 0], translation[:, 2], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory')
     #add second trajectory
-    plt.plot(positions_off[:, 0], positions_off[:, 2], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
+    plt.plot(translation_offset[:, 0], translation_offset[:, 2], marker='o', markersize=0.5, linestyle='-', linewidth=0.4, label='Trajectory with offset')
 
-    plt.quiver(positions[:, 0], positions[:, 2],
+    plt.quiver(translation[:, 0], translation[:, 2],
                 up_vector[:, 0], up_vector[:, 1],
                 color='r', scale=100, width=0.0005,
                 headwidth=4, headlength=6)
     
-    plt.quiver(positions_off[:, 0], positions_off[:, 2],    
+    plt.quiver(translation_offset[:, 0], translation_offset[:, 2],    
                 up_vector_off[:, 0], up_vector_off[:, 1],
                 color='b', scale=100, width=0.0005,
                 headwidth=4, headlength=6)
@@ -1111,20 +1137,25 @@ class Trainer(object):
             +  0.01*strength_loss.mean()
          #   + 0.001*offset_loss
 
+
         )
         pred_intensity = pred_intensity.unsqueeze(-1)
         gt_intensity = gt_intensity.unsqueeze(-1)
 
+      
         # main loss
         loss = lidar_loss.sum()
 
         # additional CD Loss
-        #pred_lidar = rays_d_lidar * pred_depth.unsqueeze(-1) / self.opt.scale
-        #gt_lidar = rays_d_lidar * gt_depth.unsqueeze(-1) / self.opt.scale
-        #dist1, dist2, _, _ = self.cham_fn(pred_lidar, gt_lidar)
-        #chamfer_loss = (dist1 + dist2).mean() * 0.5
-        #loss = loss + chamfer_loss
+        pred_lidar = rays_o_lidar + motion_offset + torch.matmul(motion_rotation, rays_d_lidar.unsqueeze(-1)).squeeze(-1) * pred_depth.unsqueeze(-1) / self.opt.scale
+        gt_lidar = rays_o_lidar + motion_offset + torch.matmul(motion_rotation, rays_d_lidar.unsqueeze(-1)).squeeze(-1)  * gt_depth.unsqueeze(-1) / self.opt.scale
+        dist1, dist2, _, _ = self.cham_fn(pred_lidar, gt_lidar)
+        chamfer_loss = (dist1 + dist2).mean() * 0.5
 
+
+        #print lidar loss and chamfer loss and factors
+        #self.log(f"lidar loss: {loss.item()} | chamfer loss: {chamfer_loss.item()} | alpha_d: {self.opt.alpha_d} | alpha_r: {self.opt.alpha_r} | alpha_i: {self.opt.alpha_i}")
+        loss = loss + chamfer_loss
         if self.opt.flow_loss:
             frame_idx = int(time_lidar * (self.opt.num_frames - 1))
             pc = self.pc_list[f"{frame_idx}"]
@@ -1428,9 +1459,53 @@ class Trainer(object):
         )
         self.local_step = 0
 
+        print(self.epoch)
+        
+        #if self.epoch <2:
+        #   print("preheating")
+
+        if  self.epoch < 100:
+
+            #print number of param_groups
+            self.R.requires_grad = False
+            self.T.requires_grad = False
+            #self.optimizer.param_groups = [group for group in self.optimizer.param_groups if any(p.requires_grad for p in group["params"])]
+        else:
+            self.R.requires_grad = True
+            self.T.requires_grad = True
+
+        '''
+        elif self.epoch < 200:
+            print("freeze model")
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            #print num of param_groups
+    
+            #self.optimizer.param_groups = [group for group in self.optimizer.param_groups if any(p.requires_grad for p in group["params"])]
+
+            self.R.requires_grad = True
+            self.T.requires_grad = True
+
+
+            #self.optimizer.add_param_group({"params": self.R, "lr": self.opt.lr * 0.01})
+            #self.optimizer.add_param_group({"params": self.T, "lr": self.opt.lr * 0.01})
+        
+        else:
+            print("unfreeze model")
+            for param in self.model.parameters():
+                param.requires_grad = True
+
+            self.R.requires_grad = False
+            self.T.requires_grad = False
+        '''       
+        
         for data in loader:
             self.local_step += 1
             self.global_step += 1
+
+
+       
 
             self.optimizer.zero_grad()
 
@@ -1443,9 +1518,11 @@ class Trainer(object):
                     loss,
                 ) = self.train_step(data)
 
- 
+           
             self.scaler.scale(loss).backward()
+
             self.scaler.step(self.optimizer)
+
             self.scaler.update()
 
             if self.scheduler_update_every_step:
