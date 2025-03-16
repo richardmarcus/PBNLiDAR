@@ -130,3 +130,90 @@ class KITTI360Loader:
                 velo_to_worlds.append(tmp)
         velo_to_worlds = np.stack(velo_to_worlds)
         return velo_to_worlds
+    
+
+    def load_cameras(self, sequence_name, frame_ids, interpolation=None):
+        """
+        Args:
+            sequence_name: str, name of sequence. e.g. "2013_05_28_drive_0000".
+            frame_ids: list of int, frame ids. e.g. range(1908, 1971+1).
+
+        Returns:
+            cam_to_worlds
+        """
+        cam_to_world_dict, intrinsics, extrinsics, rectification = self._load_all_cameras(sequence_name, interpolation)
+        cam_to_worlds = []
+        for frame_id in frame_ids:
+            if frame_id in cam_to_world_dict.keys():
+                cam_to_worlds.append(cam_to_world_dict[frame_id])
+                tmp = cam_to_world_dict[frame_id]
+            else:
+                cam_to_worlds.append(tmp)
+
+
+        cam_to_worlds = np.stack(cam_to_worlds)
+        return cam_to_worlds, intrinsics, extrinsics, rectification
+    
+    def _load_all_cameras(self, sequence_name, interpolation = None):
+        """
+        Args:
+            sequence_name: str, name of sequence. e.g. "2013_05_28_drive_0000".
+
+        Returns:
+            cam_to_world: 4x4 metric.
+        """
+        data_poses_dir = self.data_poses_dir / f"{sequence_name}_sync"
+        assert data_poses_dir.is_dir()
+
+        if interpolation is not None:
+            pose_str = f"poses_{interpolation}.txt"
+        else:
+            pose_str = "poses.txt"
+
+        # IMU to world transformation (poses.txt).
+        poses_path = data_poses_dir / pose_str
+        imu_to_world_dict = dict()
+        frame_ids = []
+        for line in np.loadtxt(poses_path):
+            frame_id = int(line[0])
+            frame_ids.append(frame_id)
+            imu_to_world = line[1:].reshape((3, 4))
+            imu_to_world_dict[frame_id] = imu_to_world
+
+        # Camera to IMU transformation (calib_cam_to_pose.txt).
+        cam_to_imu_path = self.calibration_dir / "calib_cam_to_pose.txt"
+        with open(cam_to_imu_path, "r") as fid:
+            cam_00_to_imu = KITTI360Loader._read_variable(fid, "image_00", 3, 4)
+            cam_00_to_imu = ct.convert.pad_0001(cam_00_to_imu)
+
+        intrinsic_path = self.calibration_dir / "perspective.txt"
+        #read line with P_rect_00 for left camera perspective intrinsics and R_rect_01 for left rectification matrix
+        with open(intrinsic_path, "r") as fid:
+            p_rect_00 = KITTI360Loader._read_variable(fid, "P_rect_00", 3, 4)
+            p_rect_00 = ct.convert.pad_0001(p_rect_00)
+            r_rect_00 = KITTI360Loader._read_variable(fid, "R_rect_00", 3, 3)
+            #add 4th row and column to R_rect_00
+            r_rect_00 = np.concatenate((r_rect_00, np.array([[0, 0, 0]]).T), axis=1)
+            r_rect_00 = ct.convert.pad_0001(r_rect_00)
+
+
+        # Compute cam_to_world
+        cam_to_world_dict = dict()
+        for frame_id in frame_ids:
+            imu_to_world = imu_to_world_dict[frame_id]
+            cam_00_to_world = imu_to_world @ cam_00_to_imu @ np.linalg.inv(r_rect_00)
+            
+            cam_to_world_dict[frame_id] = ct.convert.pad_0001(cam_00_to_world)
+
+        
+
+        cam_to_velo_path = self.calibration_dir / "calib_cam_to_velo.txt"
+
+        with open(cam_to_velo_path, "r") as fid:
+            line = fid.readline().split()
+            line = [float(x) for x in line]
+            cam_00_to_velo = np.array(line).reshape(3, 4)
+            cam_00_to_velo = ct.convert.pad_0001(cam_00_to_velo)
+
+
+        return cam_to_world_dict, p_rect_00, cam_00_to_velo, r_rect_00

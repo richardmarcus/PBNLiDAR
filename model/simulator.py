@@ -35,9 +35,8 @@ class Simulator(object):
         W_lidar=1030, # width of lidar range map
         laser_strength = None,
         laser_offsets = None,
-        laser_offsets = None,
         fov_lidar = None,
-        z_offsets = None,
+        #z_offsets = None,
         velocity = None,
         R = None,
         T = None,
@@ -65,7 +64,7 @@ class Simulator(object):
         self.laser_offsets = laser_offsets
         self.velocity = velocity
         self.fov_lidar = fov_lidar
-        self.z_offsets = z_offsets
+        #self.z_offsets = z_offsets
         self.laser_offsets = laser_offsets
         self.R = R
         self.T = T
@@ -130,6 +129,9 @@ class Simulator(object):
         #rays_o_lidar, rays_d_lidar, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
 
+        cam_path = "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/KITTI-360/data_2d_raw/2013_05_28_drive_0000_sync/image_00/data_rect/"
+
+        begin_frame = 1538
 
         for i in tqdm.tqdm(range(B)):
             ray_o_lidar = rays_o_lidar[i, ...].unsqueeze(0)
@@ -144,6 +146,7 @@ class Simulator(object):
                     staged=True,
                     perturb=False,
                     **vars(self.opt),
+                    save_pc=save_pc,
                 )
 
             pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, self.H_lidar, self.W_lidar, 2)
@@ -159,11 +162,11 @@ class Simulator(object):
                 pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
             raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
     
-            if self.laser_strength is not None:
-                mult_laser = optimized_laserstrength[:,0].repeat(self.W_lidar,1).T.reshape(1, self.H_lidar, self.W_lidar)
-                add_laser = optimized_laserstrength[:,1].repeat(self.W_lidar,1).T.reshape(1, self.H_lidar, self.W_lidar)
+            #if self.laser_strength is not None:
+            #    mult_laser = optimized_laserstrength[:,0].repeat(self.W_lidar,1).T.reshape(1, self.#H_lidar, self.W_lidar)
+            #    add_laser = optimized_laserstrength[:,1].repeat(self.W_lidar,1).T.reshape(1, self.#H_lidar, self.W_lidar)
 
-                pred_intensity = pred_intensity * mult_laser + add_laser
+                #pred_intensity = pred_intensity * mult_laser + add_laser
             #pred_intensity = pred_intensity * raydrop_mask
             #pred_depth = pred_depth * raydrop_mask
 
@@ -172,11 +175,16 @@ class Simulator(object):
             pred_intensity = pred_intensity[0].detach().cpu().numpy()
             #z_offsets from opt.z_offset and opt.z_offset_bottom
             z_offsets = [self.opt.shift_z_top, self.opt.shift_z_bottom]
-            pred_lidar = pano_to_lidar_with_intensities(
-                pred_depth / self.opt.scale, pred_intensity, self.opt.fov_lidar, z_offsets
-            )
+
+            gt_rgb = cv2.imread(f"{cam_path}/{begin_frame + i:010d}.png")
+            #downscale by 4
+            gt_rgb = cv2.resize(gt_rgb, (self.W_lidar, self.H_lidar), interpolation=cv2.INTER_AREA)
+
 
             if save_pc:
+                pred_lidar = pano_to_lidar_with_intensities(
+                pred_depth / self.opt.scale, pred_intensity, self.opt.fov_lidar, z_offsets)
+
                 save_path = os.path.join(
                         self.workspace,
                         "points",
@@ -197,7 +205,18 @@ class Simulator(object):
                 img_raydrop = cv2.cvtColor(img_raydrop, cv2.COLOR_GRAY2BGR)
 
                 img_intensity = (pred_intensity * 255).astype(np.uint8)
-                img_intensity = cv2.applyColorMap(img_intensity, 1)
+                #make img intensity to be 3 channel and use only red channel
+                img_intensity = cv2.cvtColor(img_intensity, cv2.COLOR_GRAY2BGR)
+                #img_intensity[:,:,1] = 0
+                #img_intensity[:,:,0] = 0
+
+
+
+                #set r to 0 of gt_rgb
+                #gt_rgb[:,:,2] = 0
+                #overly intensity on gt_rgb
+                #img_intensity = cv2.addWeighted(gt_rgb, 0.1, img_intensity, 0.9, 0)
+                #img_intensity = cv2.applyColorMap(img_intensity, 1)
 
                 #save depth as float npy
                 save_path_depth = os.path.join(
@@ -211,7 +230,7 @@ class Simulator(object):
                 img_depth = (pred_depth * 255).astype(np.uint8)
                 img_depth = cv2.applyColorMap(img_depth, 20)
 
-                img_pred = cv2.vconcat([img_raydrop, img_intensity, img_depth])
+                img_pred = cv2.vconcat([img_raydrop, img_intensity, gt_rgb, img_depth])
                 cv2.imwrite(save_path, img_pred)
               
             if save_video:

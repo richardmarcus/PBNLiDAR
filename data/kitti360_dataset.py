@@ -133,19 +133,13 @@ class KITTI360Dataset(BaseDataset):
             self.split = 'train'
             self.num_rays_lidar = -1
 
-        if self.split == "val":
-            self.split = "test"
-
-        if self.split == "train":
-            self.split = "all"
-
       
         # load nerf-compatible format data.
-        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_{self.split}.json"))
+        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}.json"))
 
         with open(
             os.path.join(self.root_path, 
-                         f"transforms_{self.sequence_id}_{self.split}.json"),
+                         f"transforms_{self.sequence_id}.json"),
             "r",
         ) as f:
             transform = json.load(f)
@@ -180,7 +174,25 @@ class KITTI360Dataset(BaseDataset):
             #get id of first frame
             frame0id = frames[0]["frame_id"]
             val_ids = [i-frame0id for i in val_ids]
-            self.val_ids = val_ids
+            train_ids = [i for i in range(frame_start, frame_end+1)]
+            #offset by frame0id
+            train_ids = [i-frame0id for i in train_ids]
+            train_ids = [i for i in train_ids if i not in val_ids]
+
+            if self.split == 'train':
+                self.selected_ids = train_ids
+
+            else:
+                self.selected_ids = val_ids
+
+            print("Selected ids", self.selected_ids, self.split)
+
+
+        else:
+            print("No val_ids found")
+            exit()
+
+
         self.poses_lidar = []
         self.images_lidar = []
         self.times = []
@@ -340,14 +352,15 @@ class KITTI360Dataset(BaseDataset):
         size = len(self.poses_lidar)#-2
         print("size", size)
         #if self.val_ids exist
-        if hasattr(self, 'val_ids'):
-            indices = self.val_ids
+        if hasattr(self, 'selected_ids'):
+            indices = self.selected_ids
             #to list
             indices = list(indices)
             print(indices, list(range(size)))
         else:
             indices = list(range(size))
             print(indices)
+            exit()
 
         #list(range(1,size+1)),
         #list(range(size)),

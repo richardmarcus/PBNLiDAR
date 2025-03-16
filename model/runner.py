@@ -813,8 +813,7 @@ class Trainer(object):
 
         base_translation = poses_lidar[:, :3, 3]  # [B, 3]
         
-
-        interpolated_poses = interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=1024)  # [B, 1024, 4, 4]
+        interpolated_poses = interpolate_poses(poses_lidar, poses_before, poses_after, num_steps=data["W_lidar"])  # [B, 1024, 4, 4]
 
 
 
@@ -835,6 +834,11 @@ class Trainer(object):
         #to get a rotation relative to base rotation we need to multiply the inverse of the base rotation
         #with the interpolated rotation
         relative_rotation = torch.matmul(base_rotation.unsqueeze(1).inverse(), rotation)  # [B, 1024, 3, 3]
+
+        #set offset to 0 and rotation to identity if no motion
+        if not motion:
+            translation_offset = torch.zeros_like(translation_offset)
+            relative_rotation = torch.eye(3, device=rotation.device).unsqueeze(0).repeat(rotation.shape[1], 1, 1).unsqueeze(0).repeat(rotation.shape[0], 1, 1, 1)
 
         #self.plot_poses_arrows(interpolated_poses[0], scale=1.0)  
         return translation_offset, relative_rotation, laser_strength
@@ -1361,13 +1365,18 @@ class Trainer(object):
         if self.use_refine:
             pred_raydrop = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
             pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
+            
         raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
 
-        
+        if False:
+            loss_mask = raydrop_mask
+        else:
+            loss_mask = gt_raydrop
+
         lidar_loss = (
-            self.opt.alpha_d * self.criterion["depth"](pred_depth * raydrop_mask, gt_depth).mean()
+            self.opt.alpha_d * self.criterion["depth"](pred_depth * loss_mask, gt_depth).mean()
             + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop).mean()
-            + self.opt.alpha_i * self.criterion["intensity"]((pred_intensity)* raydrop_mask, gt_intensity).mean()
+            + self.opt.alpha_i * self.criterion["intensity"]((pred_intensity)* loss_mask, gt_intensity).mean()
         )
 
         loss = lidar_loss
@@ -1451,19 +1460,19 @@ class Trainer(object):
         plt.close('all')
         total_loss = 0
 
-        self.model.train()
 
-        pbar = tqdm.tqdm(
-            total=len(loader) * loader.batch_size,
-            bar_format="{desc}: {percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-        )
-        self.local_step = 0
-
-        print(self.epoch)
+      
         
         #if self.epoch <2:
         #   print("preheating")
 
+        #print("freeze model")
+        #for param in self.model.parameters():
+        #    param.requires_grad = False
+        #self.R.requires_grad = True
+        self.R.requires_grad = False
+        self.T.requires_grad = False
+        '''
         if  self.epoch < 100:
 
             #print number of param_groups
@@ -1474,7 +1483,7 @@ class Trainer(object):
             self.R.requires_grad = True
             self.T.requires_grad = True
 
-        '''
+        
         elif self.epoch < 200:
             print("freeze model")
             for param in self.model.parameters():
@@ -1500,6 +1509,16 @@ class Trainer(object):
             self.T.requires_grad = False
         '''       
         
+
+        self.model.train()
+
+        pbar = tqdm.tqdm(
+            total=len(loader) * loader.batch_size,
+            bar_format="{desc}: {percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+        )
+        self.local_step = 0
+
+
         for data in loader:
             self.local_step += 1
             self.global_step += 1
@@ -1752,7 +1771,7 @@ class Trainer(object):
 
         #print laser_strength
 
-        #self.refine(refine_loader)
+        self.refine(refine_loader)
 
         if self.use_tensorboardX:
             self.writer.close()
@@ -1937,7 +1956,18 @@ class Trainer(object):
         raydrop_input_list = []
         raydrop_gt_list = []
 
-   
+        '''
+        #remove gradients from opt.params
+        for opt_param in self.opt.opt_params:
+            print(opt_param)
+            getattr(self, opt_param).requires_grad = False
+            print("removed grad from", opt_param)
+
+        #remove all gradients
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        '''
         self.log("Preparing for Raydrop Refinemet ...")
         for i, data in enumerate(loader):
                     #gives line ids for each ray
@@ -1948,15 +1978,18 @@ class Trainer(object):
 
 
             motion_offset, motion_rotation, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+
+            
+            #detach optimized_laserstrength
+            #optimized_laserstrength = optimized_laserstrength.detach()
+            #motion_offset = motion_offset.detach()
+            #motion_rotation = motion_rotation.detach()
   
             time_lidar = data['time']
             H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
             gt_raydrop = data["images_lidar"][:, :, :, 0].unsqueeze(0)
 
-     
-
-
-
+    
             with torch.cuda.amp.autocast(enabled=self.opt.fp16):
                 with torch.no_grad():
                     outputs_lidar = self.model.render(
@@ -1969,14 +2002,19 @@ class Trainer(object):
                         **vars(self.opt),
                     )
 
-            
 
             pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, 2)
             pred_raydrop = pred_rgb_lidar[:, :, :, 0]
-            pred_intensity = pred_rgb_lidar[:, :, :, 1] * optimized_laserstrength[:,:,0].reshape(-1, H_lidar, W_lidar)+optimized_laserstrength[:,:,1].reshape(-1, H_lidar, W_lidar)
+            pred_intensity = pred_rgb_lidar[:, :, :, 1] * optimized_laserstrength[:,:,0].reshape(-1, H_lidar, W_lidar)#+optimized_laserstrength[:,:,1].reshape(-1, H_lidar, W_lidar)
+
+
+
+
+            
             pred_depth = outputs_lidar["depth_lidar"].reshape(-1, H_lidar, W_lidar)
 
             raydrop_input = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
+
 
             raydrop_input_list.append(raydrop_input)
             raydrop_gt_list.append(gt_raydrop)
@@ -1992,8 +2030,8 @@ class Trainer(object):
 
         loss_total = []
 
-        refine_bs = 16 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
-        refine_epoch = 100#0
+        refine_bs = 24 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
+        refine_epoch = 1000
 
         optimizer = torch.optim.Adam(self.model.unet.parameters(), lr=0.001, weight_decay=0)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.001, total_steps=refine_epoch)
@@ -2023,7 +2061,7 @@ class Trainer(object):
                 mask[:, :, yi:yi+box_size_y, xi:xi+box_size_x] = 0.
             input = input * mask
 
-            raydrop_refine = self.model.unet(input)
+            raydrop_refine = self.model.unet(input.detach())
             bce_loss = self.bce_fn(raydrop_refine, gt)
             loss = bce_loss
 
@@ -2042,8 +2080,13 @@ class Trainer(object):
             "epoch": self.epoch,
             "model": self.model.state_dict()
             }
+        for param in self.opt.opt_params:
+            state[param] = getattr(self.opt, param).clone().cpu()
+            print("save after refining", param)
+
         file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}_refine.pth"
         torch.save(state, file_path)
+
 
         torch.cuda.empty_cache()
 
@@ -2087,14 +2130,19 @@ class Trainer(object):
             "epoch": self.epoch,
             "global_step": self.global_step,
             "stats": self.stats,
-            "laser_strength": self.laser_strength.detach().cpu(),
-            "laser_offsets": self.laser_offsets.detach().cpu(),
-            "laser_offsets": self.laser_offsets.detach().cpu(),
-            "z_offsets": self.z_offsets.detach().cpu(),
-            "fov_lidar": self.fov_lidar.detach().cpu(),
-            "R": self.R.detach().cpu(),
-            "T": self.T.detach().cpu()
         }
+
+            #"laser_strength": self.laser_strength.detach().cpu(),
+            #"laser_offsets": self.laser_offsets.detach().cpu(),
+            #"z_offsets": self.z_offsets.detach().cpu(),
+            #"fov_lidar": self.fov_lidar.detach().cpu(),
+            #"R": self.R.detach().cpu(),
+            #"T": self.T.detach().cpu()
+
+        for param in self.opt.opt_params:
+            state[param] = getattr(self.opt, param).clone().cpu()
+            print("save", param)
+
 
         if full:
             state["optimizer"] = self.optimizer.state_dict()
@@ -2157,7 +2205,14 @@ class Trainer(object):
 
         checkpoint_dict = torch.load(checkpoint, map_location=self.device)
 
+        for param in self.opt.opt_params:
+            if param in checkpoint_dict:
+                self.__setattr__(param, torch.nn.Parameter(checkpoint_dict[param].to(self.device)))
+                self.log(f"loaded {param}")
+            else:
+                self.log(f"not found {param}")
 
+        '''
         if "laser_strength" in checkpoint_dict:
             self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
             #add laser_strength to optimizer
@@ -2188,14 +2243,14 @@ class Trainer(object):
 
         if "R" in checkpoint_dict:
             self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
-            self.optimizer.add_param_group({'params': self.R, 'lr': self.opt.lr *  0.1})
-            print("R loaded")
+            self.optimizer.add_param_group({'params': self.R, 'lr': self.opt.lr *  0.001})
+            print("R loaded with lr ", self.opt.lr, 0.001)
 
         if "T" in checkpoint_dict:
             self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
-            self.optimizer.add_param_group({'params': self.T, 'lr': self.opt.lr *  0.1})
+            self.optimizer.add_param_group({'params': self.T, 'lr': self.opt.lr *  0.001})
             print("T loaded")
-
+        '''
         if lidar_only:
             return
 

@@ -1,18 +1,18 @@
 #! /bin/bash
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d_sim.py \
 --config configs/kitti360_1538.txt \
---workspace log/kitti360_lidar4d_f1538_optimize/simulation \
---ckpt log/kitti360_lidar4d_f1538_optimize/checkpoints/lidar4d_ep0334_refine.pth \
+--workspace log/kitti360_lidar4d_f1538_iterate/simulation \
+--ckpt log/kitti360_lidar4d_f1538_iterate/checkpoints/init_ep0100.pth \
 --H_lidar 64 \
---W_lidar 1024 \
+--W_lidar 512 \
 --shift_x 0.0 \
 --shift_y 0.0 \
 --shift_z 0.0 \
 --align_axis \
 --interpolation_factor 0.0 \
---shift_z_top -0.202 \
---shift_z_bottom -0.121 \
---fov_lidar 2.02984126984 11.0317460317 -8.799812 16.541 \
+--shift_z_top -0.20287499  \
+--shift_z_bottom -0.12243641 \
+--fov_lidar 1.9647572 11.0334425 -8.979475  16.52717 \
 # -0.382 \
 #--shift_z_bottom -0.121 \
 #--fov_lidar 2.0 13.45 -11.45 13.45 \

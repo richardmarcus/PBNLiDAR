@@ -71,7 +71,7 @@ def to_img(points):
     image_points[:, 1] /= image_points[:, 2]
 
 
-    # leeres Bild erstellen
+
     image = np.zeros((376, 1408), dtype=np.uint8)
 
     intensity = points[:, 3]

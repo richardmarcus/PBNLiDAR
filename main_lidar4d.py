@@ -42,6 +42,7 @@ def get_arg_parser():
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
     parser.add_argument("--num_frames", type=int, default=51, help="total number of sequence frames")
     parser.add_argument("--experiment_name", type=str, default="lidar4d", help="experiment name")
+    
 
     ### LiDAR4D
     parser.add_argument("--min_resolution", type=int, default=32, help="minimum resolution for planes")
@@ -61,6 +62,10 @@ def get_arg_parser():
     parser.add_argument("--num_layers_lidar", type=int, default=3, help="num_layers of intensity/raydrop")
     parser.add_argument("--hidden_dim_lidar", type=int, default=64, help="hidden_dim of intensity/raydrop")
     parser.add_argument("--out_lidar_dim", type=int, default=2, help="output dim for lidar intensity/raydrop")
+
+    #list of opt params
+    parser.add_argument("--opt_params", type=str, nargs="*", default=["laser_strengths"])#, "z_offsets", "fov_lidar", "laser_offsets", "R", "T"], help="list of opt params")
+    parser.add_argument("--lr_factors", type=float, nargs="*", default=[0.1])#, 0.001, 0.001, 0.01, 0.01, 0.01], help="list of lr factors")
 
     ### training
     parser.add_argument("--depth_loss", type=str, default="l1", help="l1, bce, mse, huber")
@@ -200,6 +205,8 @@ def main():
     import os
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
 
+    #assert opt_params and lr_factors have the same length
+    assert len(opt.opt_params) == len(opt.lr_factors), "opt_params and lr_factors should have the same length"
 
     # Check sequence id.
     kitti360_sequence_ids = [
@@ -317,25 +324,25 @@ def main():
     
     num_frames = num_frames_from_sequence_id(opt.sequence_id)
     #pose_offsets R and T for each frame
-    R = torch.zeros((num_frames, 3))
+    opt.R = torch.zeros((num_frames, 3))
     #R = torch.rand((num_frames, 3), requires_grad=True)*0.4-0.2
-    T = torch.zeros((num_frames, 3))
+    opt.T = torch.zeros((num_frames, 3))
     #random between -0.1 and 0.1
     #T = torch.rand((num_frames, 3), requires_grad=True)*0.01-0.005
     #nn parameters
-    R = torch.nn.Parameter(R.to(device))
-    T = torch.nn.Parameter(T.to(device))
+    opt.R = torch.nn.Parameter(opt.R.to(device))
+    opt.T = torch.nn.Parameter(opt.T.to(device))
 
-    laser_strengths = torch.zeros((laser_lines, 2))
+    opt.laser_strengths = torch.zeros((laser_lines, 2))
     #multiply first channel by 2
-    laser_strengths[:,  0] = 1#laser_strengths[:, 0] *2
-    laser_strengths = torch.nn.Parameter(laser_strengths.to(device))
+    opt.laser_strengths[:,  0] = 1#laser_strengths[:, 0] *2
+    opt.laser_strengths = torch.nn.Parameter(opt.laser_strengths.to(device))
 
 
 
     if opt.test or opt.test_eval or opt.refine:
         trainer = Trainer(
-            "lidar4d",
+            opt.experiment_name,
             opt,
             model,
             device=device,
@@ -344,21 +351,20 @@ def main():
             fp16=opt.fp16,
             lidar_metrics=lidar_metrics,
             use_checkpoint=opt.ckpt,
+            laser_strength  = opt.laser_strengths,
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
-            R = R,
-            T = T,
+            R = opt.R,
+            T = opt.T,
         )
 
 
         opt.z_offsets = trainer.z_offsets
         opt.fov_lidar = trainer.fov_lidar
         opt.laser_offsets = trainer.laser_offsets
-        R = trainer.R
-        T = trainer.T
-
-
+        opt.R = trainer.R
+        opt.T = trainer.T
 
 
         if opt.refine: # optimize raydrop only
@@ -376,15 +382,15 @@ def main():
                 fov_lidar=opt.fov_lidar,
                 z_offsets=opt.z_offsets,
                 laser_offsets=opt.laser_offsets,
-                R = R,
-                T= T,
+                R = opt.R,
+                T = opt.T,
             ).dataloader()
 
             trainer.refine(refine_loader)
 
         test_loader = NeRFDataset(
             device=device,
-            split="test",
+            split="val",
             root_path=opt.path,
             sequence_id=opt.sequence_id,
             preload=opt.preload,
@@ -396,8 +402,8 @@ def main():
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
-            R= R,
-            T= T,
+            R = opt.R,
+            T = opt.T,
         ).dataloader()
 
         if test_loader.has_gt and not opt.test:
@@ -429,21 +435,32 @@ def main():
 
 
 
+        params = model.get_params(opt.lr)
+        for param, lr_factor in zip(opt.opt_params, opt.lr_factors):
+            if lr_factor > 0:
+                params.append({"params": [getattr(opt, param)], "lr": lr_factor * opt.lr})
 
-
+  
         optimizer = lambda model: torch.optim.Adam(
-            model.get_params(opt.lr) 
+            params,
             #+ [{"params": [laser_strengths], "lr": 0.1 * opt.lr}] 
             #+ [{"params": [opt.z_offsets], "lr": 0.001 * opt.lr}] 
             #+ [{"params" :[opt.fov_lidar], "lr": 0.001* opt.lr}]
             #
-            + [{"params": [R], "lr": 0.01 * opt.lr}]
-            + [{"params": [T], "lr": 0.01 * opt.lr}]
+            #+ [{"params": [R], "lr": 0.01 * opt.lr}]
+            #+ [{"params": [T], "lr": 0.01 * opt.lr}]
             #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}]
-            ,  
+             
             betas=(0.9, 0.99),
             eps=1e-15
         )
+
+  
+
+        
+        
+
+
 
 
         # decay to 0.1 * init_lr at last iter step
@@ -468,24 +485,25 @@ def main():
             lr_scheduler=scheduler,
             scheduler_update_every_step=True,
             eval_interval=opt.eval_interval,
-            laser_strength = laser_strengths,
+            laser_strength  = opt.laser_strengths,
             fov_lidar = opt.fov_lidar,
             z_offsets = opt.z_offsets,
             laser_offsets = opt.laser_offsets,
-            R = R,
-            T = T,
+            R = opt.R,
+            T = opt.T,
         )
+
 
         opt.z_offsets = trainer.z_offsets
         opt.fov_lidar = trainer.fov_lidar
         opt.laser_offsets = trainer.laser_offsets
-        R = trainer.R
-        T = trainer.T
+        opt.R = trainer.R
+        opt.T = trainer.T
 
 
         train_loader = NeRFDataset(
             device=device,
-            split="all",
+            split="train",
             root_path=opt.path,
             sequence_id=opt.sequence_id,
             preload=opt.preload,
@@ -497,8 +515,8 @@ def main():
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
-            R = R,
-            T= T,
+            R = opt.R,
+            T = opt.T,
         ).dataloader()
 
         valid_loader = NeRFDataset(
@@ -515,8 +533,8 @@ def main():
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
-            R = R,
-            T= T,
+            R = opt.R,
+            T = opt.T,
         ).dataloader()
 
         # optimize raydrop
@@ -534,8 +552,8 @@ def main():
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
-            R = R,
-            T= T,
+            R = opt.R,
+            T = opt.T,
         ).dataloader()
 
 
@@ -545,6 +563,7 @@ def main():
 
 
         # also test
+        '''
         test_loader = NeRFDataset(
             device=device,
             split="test",
@@ -559,10 +578,11 @@ def main():
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
-            R = R,
-            T= T,
+            R = opt.R,
+            T = opt.T,
         ).dataloader()
-
+        '''
+        test_loader = valid_loader
         if test_loader.has_gt:
             trainer.evaluate(test_loader)  # evaluate metrics
 

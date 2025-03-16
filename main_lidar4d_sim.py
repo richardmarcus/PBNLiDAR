@@ -1,5 +1,6 @@
 import os
 import math
+from matplotlib import pyplot as plt
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -58,9 +59,13 @@ def get_arg_parser():
     parser.add_argument("--use_refine", type=bool, default=True, help="use ray-drop refinement")
 
     ### simulation
+    parser.add_argument("--use_camera", action="store_true", help="use camera for simulation")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 13.45, -11.45, 13.45], help="fov up and fov range of lidar")
     parser.add_argument("--H_lidar", type=int, default=66, help="height of lidar range map")
     parser.add_argument("--W_lidar", type=int, default=1030, help="width of lidar range map")
+
+
+
     parser.add_argument("--shift_x", type=float, default=0.0, help="translation on x direction (m)")
     parser.add_argument("--shift_y", type=float, default=0.0, help="translation on y direction (m)")
     parser.add_argument("--shift_z", type=float, default=0.0, help="translation on z direction (m)")
@@ -117,6 +122,137 @@ def _get_frame_ids(sequence_id):
         raise ValueError(f"Invalid sequence id: {sequence_id}")
 
     return s_frame_id, e_frame_id
+
+
+def _get_camera_rays(sequence_id, opt, device, step=4):
+    # For KITTI-360
+    kitti_360_root = Path(opt.path) / "KITTI-360"
+    sequence_name = "2013_05_28_drive_0000"
+    s_frame_id, e_frame_id = _get_frame_ids(sequence_id)
+    frame_ids = list(range(s_frame_id, e_frame_id + 1))
+    print(f"Simulation using sequence {s_frame_id}-{e_frame_id}")
+
+    # Load KITTI-360 dataset.
+    k3 = KITTI360Loader(kitti_360_root)
+
+    # Get camera2world.
+    camera2world_direct, intrinsics, extriniscs = k3.load_cameras(sequence_name, frame_ids)
+
+
+    #camera2world_direct = k3.load_lidars(sequence_name, frame_ids)
+
+    '''
+
+
+
+    #plot camera2world and camera2world_direct as arrows
+
+    
+
+    plt.figure()
+
+    for i in range(len(camera2world)):
+        origin = camera2world[i][:3, 3]
+        forward = camera2world[i][:3, 0]
+        forward = forward[:2]
+        forward = forward / np.linalg.norm(forward) * 0.4
+        if i == 0:
+            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='b', label='lidar')
+        else:
+            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='b')
+        if i == 10:
+            break
+
+    for i in range(len(camera2world_direct)):
+        origin = camera2world_direct[i][:3, 3]
+        forward = camera2world_direct[i][:3, 0]
+        forward = forward[:2]
+        forward = forward / np.linalg.norm(forward) * 0.4
+        if i == 0:
+            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='r', label='camera')
+        else:
+            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='r')
+        if i == 10:
+            break
+
+    plt.legend()
+    plt.savefig('plots/camera2world.png')
+    print("Saved plots/camera2world.png")
+    exit()
+    '''
+
+
+
+    #extriniscs are cam to velo transformation
+    #velo_to_cam = (extriniscs)
+    #camera2world = [np.dot(velo_to_cam, cam2world) for cam2world in camera2world]
+
+    # Offset and scale
+    poses = np.stack(camera2world_direct, axis=0)
+    poses[:, :3, -1] = (poses[:, :3, -1] - opt.offset) * opt.scale
+    poses = torch.from_numpy(poses).to(device).float()  # [N, 4, 4]
+
+    # Get directions based on H, W and intrinsics
+    B = poses.shape[0]
+    H = opt.H_lidar
+    W = opt.W_lidar
+    # Allow taking steps in the linspace
+    step_w = step  # Take every 10th point horizontally
+    step_h = step # Take every 10th point vertically
+    
+    i, j = custom_meshgrid(
+        torch.linspace(0, W - 1, W//step_w, device=device), 
+        torch.linspace(0, H - 1, H//step_h, device=device),
+    )  # float
+    
+    # Adjust reshape dimensions for the new grid size
+    new_H = H//step_h
+    new_W = W//step_w
+    i = i.t().reshape([1, new_H * new_W]).expand([B, new_H * new_W])
+    j = j.t().reshape([1, new_H * new_W]).expand([B, new_H * new_W])
+
+  
+    #get alpha and beta for pinhole camera model, alpha is the vertical angle, beta is the horizontal angle
+    #use H and W for image resolution, intrinsics for focal length and principal point
+    #intrinsics is a 3x3 matrix, [fx, 0, cx; 0, fy, cy; 0, 0, 1]
+
+    fx = intrinsics[0, 0]
+    fy = intrinsics[1, 1]
+    cx = intrinsics[0, 2]  
+    cy = intrinsics[1, 2]
+
+ 
+    # Convert pixel coordinates to normalized device coordinates
+    x = (i+0.5 - cx) / fx
+    y = (j+0.5 - cy) / fy
+
+
+    # For pinhole camera model, directions point from origin through image plane points
+    directions = torch.stack(
+        [
+            x,  # x-coordinate on image plane
+            y,  # y-coordinate on image plane
+            torch.ones_like(x)  # z=1 plane
+        ],
+        -1,
+    )
+    # Normalize the direction vectors
+    directions = F.normalize(directions, dim=-1)
+
+
+    rays_d = directions @ poses[:, :3, :3].transpose(-1, -2)  # (B, N, 3)
+    rays_o = poses[..., :3, 3]  # [B, 3]
+    rays_o = rays_o
+    rays_o = rays_o[..., None, :].expand_as(rays_d)  # [B, N, 3]
+
+
+    times_lidar = []
+    for frame in frame_ids:
+        time = np.asarray((frame-s_frame_id)/(e_frame_id-s_frame_id))
+        times_lidar.append(time)
+    times_lidar = torch.from_numpy(np.asarray(times_lidar, dtype=np.float32)).view(-1, 1).to(device).float() # [N, 1]
+
+    return rays_o, rays_d, times_lidar
 
 
 def _get_lidar_rays(sequence_id, opt, device, interpolation):
@@ -253,11 +389,11 @@ def main():
     T = torch.zeros((num_frames, 3))
 
     laser_lines = 64
-    laser_offsets = torch.zeros(laser_lines-4)
+    laser_offsets = torch.zeros(laser_lines)
 
     
-    laser_strengths = torch.zeros((laser_lines, 2))
-    laser_strengths[:,  0] = 1
+    laser_strengths = torch.ones((laser_lines))
+
 
 
     sim = Simulator(
@@ -272,60 +408,70 @@ def main():
         W_lidar=opt.W_lidar,
         use_refine=opt.use_refine,
         fov_lidar=opt.fov_lidar,
-        z_offsets=opt.z_offsets,
         laser_offsets=laser_offsets,
         R = R,
         T = T,
     )
 
-    #extend laser_offsets  and laser_strengths from laser_lines to h_lidar
-    if opt.H_lidar > laser_lines:
-        num_new = opt.H_lidar - laser_lines
-        # get num_new, 2 random values between 0 and laser_lines
-        random_indices = torch.randint(0, laser_lines, (num_new, 2))
-        # random factor between 0 and 1
-        random_factors = torch.rand((num_new))
-        extra_laser_offsets = laser_offsets[random_indices[:, 0]] * random_factors + laser_offsets[random_indices[:, 1]] * (1 - random_factors)
-        extra_laser_strengths = laser_strengths[random_indices[:, 0]] * random_factors + laser_strengths[random_indices[:, 1]] * (1 - random_factors)
+    if not opt.use_camera:
+        #extend laser_offsets  and laser_strengths from laser_lines to h_lidar
+        if opt.H_lidar > laser_lines:
+            num_new = opt.H_lidar - laser_lines
+            # get num_new, 2 random values between 0 and laser_lines
+            random_indices = torch.randint(0, laser_lines, (num_new, 2))
+            # random factor between 0 and 1
+            random_factors = torch.rand((num_new))
+            extra_laser_offsets = laser_offsets[random_indices[:, 0]] * random_factors + laser_offsets[random_indices[:, 1]] * (1 - random_factors)
+            extra_laser_strengths = laser_strengths[random_indices[:, 0]] * random_factors + laser_strengths[random_indices[:, 1]] * (1 - random_factors)
+            
+            # Total length after extension
+            total_length = laser_lines + num_new
+            # Create interleaved indices
+            original_indices = torch.linspace(0, total_length - 1, steps=laser_lines).long()
+
+            #extra indices are all indices that are not in original_indices
+            extra_indices = torch.tensor([i for i in range(total_length) if i not in original_indices])
+
+            # Create new tensors for interleaving
+            new_laser_offsets = torch.zeros(total_length, dtype=laser_offsets.dtype, device=laser_offsets.device)
+            new_laser_strengths = torch.zeros(total_length, dtype=laser_strengths.dtype, device=laser_strengths.device)
+
+            # Assign original values
+            new_laser_offsets[original_indices] = laser_offsets
+            new_laser_strengths[original_indices] = laser_strengths
+
+            # Assign extra values
+            new_laser_offsets[extra_indices] = extra_laser_offsets
+            new_laser_strengths[extra_indices] = extra_laser_strengths
+
+            # Update the original tensors
+            laser_offsets = new_laser_offsets
+            laser_strengths = new_laser_strengths
         
-        # Total length after extension
-        total_length = laser_lines + num_new
-        # Create interleaved indices
-        original_indices = torch.linspace(0, total_length - 1, steps=laser_lines).long()
-
-        #extra indices are all indices that are not in original_indices
-        extra_indices = torch.tensor([i for i in range(total_length) if i not in original_indices])
-
-        # Create new tensors for interleaving
-        new_laser_offsets = torch.zeros(total_length, dtype=laser_offsets.dtype, device=laser_offsets.device)
-        new_laser_strengths = torch.zeros(total_length, dtype=laser_strengths.dtype, device=laser_strengths.device)
-
-        # Assign original values
-        new_laser_offsets[original_indices] = laser_offsets
-        new_laser_strengths[original_indices] = laser_strengths
-
-        # Assign extra values
-        new_laser_offsets[extra_indices] = extra_laser_offsets
-        new_laser_strengths[extra_indices] = extra_laser_strengths
-
-        # Update the original tensors
-        laser_offsets = new_laser_offsets
-        laser_strengths = new_laser_strengths
-    
-    elif opt.H_lidar < laser_lines:
-        laser_offsets = laser_offsets[:opt.H_lidar]
-        laser_strengths = laser_strengths[:opt.H_lidar]
+        elif opt.H_lidar < laser_lines:
+            laser_offsets = laser_offsets[:opt.H_lidar]
+            laser_strengths = laser_strengths[:opt.H_lidar]
 
 
 
-    sequence_id = opt.sequence_id
+        sequence_id = opt.sequence_id
 
-    # simulate novel configuration (e.g., fov_lidar, H_lidar, W_lidar)
-    if opt.interpolation_factor > 0:
-        interpolation = opt.interpolation_factor
+        # simulate novel configuration (e.g., fov_lidar, H_lidar, W_lidar)
+        if opt.interpolation_factor > 0:
+            interpolation = opt.interpolation_factor
+        else:
+            interpolation = None
+        rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation)
+
     else:
-        interpolation = None
-    rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation)
+        step = 2
+        rays_o, rays_d, times_lidar = _get_camera_rays(opt.sequence_id, opt, device=device, step=step)
+        sim.W_lidar = opt.W_lidar // step
+        sim.H_lidar = opt.H_lidar // step
+        
+        print("Camera rays")
+
+    print(rays_o.shape, rays_d.shape, times_lidar.shape)
 
     # # simulate novel trajectory (global)
     # rays_o_shift = rays_o.clone()
@@ -362,13 +508,15 @@ def main():
         rays_o_shift[i,:,0] = rays_o_shift[i,:,0] + shift_x * scale
         rays_o_shift[i,:,1] = rays_o_shift[i,:,1] + shift_y * scale
         rays_o_shift[i,:,2] = rays_o_shift[i,:,2] + shift_z * scale
-        top_indices = torch.arange(0, opt.H_lidar//2 * opt.W_lidar).to(device)
-        bot_indices = torch.arange(opt.H_lidar//2 * opt.W_lidar, opt.H_lidar * opt.W_lidar).to(device)
-        rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] - opt.shift_z_top * scale
-        rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] - opt.shift_z_bottom* scale
+
+        if not opt.use_camera:
+            top_indices = torch.arange(0, opt.H_lidar//2 * opt.W_lidar).to(device)
+            bot_indices = torch.arange(opt.H_lidar//2 * opt.W_lidar, opt.H_lidar * opt.W_lidar).to(device)
+            rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] - opt.shift_z_top * scale
+            rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] - opt.shift_z_bottom* scale
 
     # save results
-    sim.render(rays_o_shift, rays_d, times_lidar)
+    sim.render(rays_o_shift, rays_d, times_lidar, save_pc=False)
 
 
 if __name__ == "__main__":
