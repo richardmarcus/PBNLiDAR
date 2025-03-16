@@ -583,10 +583,10 @@ def main():
         ).dataloader()
         '''
         test_loader = valid_loader
-        if test_loader.has_gt:
-            trainer.evaluate(test_loader)  # evaluate metrics
+        #if test_loader.has_gt:
+        #    trainer.evaluate(test_loader)  # evaluate metrics
 
-        trainer.test(test_loader, write_video=False)  # save final results
+        #trainer.test(test_loader, write_video=False)  # save final results
 
 
 

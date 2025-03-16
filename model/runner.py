@@ -1451,9 +1451,9 @@ class Trainer(object):
             for i in range(self.laser_strength.shape[1]):
                 plot_all(self.laser_strength,i)
 
-        plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.laser_offsets.detach().cpu().numpy())
+        #plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.laser_offsets.detach().cpu().numpy())
 
-        plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(),self.opt.scale)
+        #plot_trajectory(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.T.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(),self.opt.scale)
 
         #plot_direction(loader._data.poses_lidar.clone().detach().cpu().numpy(), loader._data.R.clone().detach().cpu().numpy(), self.opt.scale)
 
@@ -1771,7 +1771,7 @@ class Trainer(object):
 
         #print laser_strength
 
-        self.refine(refine_loader)
+        #self.refine(refine_loader)
 
         if self.use_tensorboardX:
             self.writer.close()
