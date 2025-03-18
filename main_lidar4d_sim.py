@@ -392,7 +392,7 @@ def main():
     laser_offsets = torch.zeros(laser_lines)
 
     
-    laser_strengths = torch.ones((laser_lines))
+    laser_strength = torch.ones((laser_lines))
 
 
 
@@ -414,7 +414,7 @@ def main():
     )
 
     if not opt.use_camera:
-        #extend laser_offsets  and laser_strengths from laser_lines to h_lidar
+        #extend laser_offsets  and laser_strength from laser_lines to h_lidar
         if opt.H_lidar > laser_lines:
             num_new = opt.H_lidar - laser_lines
             # get num_new, 2 random values between 0 and laser_lines
@@ -422,7 +422,7 @@ def main():
             # random factor between 0 and 1
             random_factors = torch.rand((num_new))
             extra_laser_offsets = laser_offsets[random_indices[:, 0]] * random_factors + laser_offsets[random_indices[:, 1]] * (1 - random_factors)
-            extra_laser_strengths = laser_strengths[random_indices[:, 0]] * random_factors + laser_strengths[random_indices[:, 1]] * (1 - random_factors)
+            extra_laser_strength = laser_strength[random_indices[:, 0]] * random_factors + laser_strength[random_indices[:, 1]] * (1 - random_factors)
             
             # Total length after extension
             total_length = laser_lines + num_new
@@ -434,23 +434,23 @@ def main():
 
             # Create new tensors for interleaving
             new_laser_offsets = torch.zeros(total_length, dtype=laser_offsets.dtype, device=laser_offsets.device)
-            new_laser_strengths = torch.zeros(total_length, dtype=laser_strengths.dtype, device=laser_strengths.device)
+            new_laser_strength = torch.zeros(total_length, dtype=laser_strength.dtype, device=laser_strength.device)
 
             # Assign original values
             new_laser_offsets[original_indices] = laser_offsets
-            new_laser_strengths[original_indices] = laser_strengths
+            new_laser_strength[original_indices] = laser_strength
 
             # Assign extra values
             new_laser_offsets[extra_indices] = extra_laser_offsets
-            new_laser_strengths[extra_indices] = extra_laser_strengths
+            new_laser_strength[extra_indices] = extra_laser_strength
 
             # Update the original tensors
             laser_offsets = new_laser_offsets
-            laser_strengths = new_laser_strengths
+            laser_strength = new_laser_strength
         
         elif opt.H_lidar < laser_lines:
             laser_offsets = laser_offsets[:opt.H_lidar]
-            laser_strengths = laser_strengths[:opt.H_lidar]
+            laser_strength = laser_strength[:opt.H_lidar]
 
 
 

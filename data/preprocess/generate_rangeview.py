@@ -5,7 +5,8 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import cv2
-from utils.convert import lidar_to_pano_with_intensities, compare_lidar_to_pano_with_intensities
+from utils.convert import lidar_to_pano_with_intensities, compare_lidar_to_pano_with_intensities, lidar_to_pano_with_intensities_and_normals
+from utils.estimate_normals import build_normal_xyz
 
 
 def get_arg_parser():
@@ -55,7 +56,7 @@ def LiDAR_2_Pano_KITTI(
     assert local_points_with_intensities.shape[0] == spread_laser_offsets.shape[0]
 
 
-    pano, intensities = lidar_to_pano_with_intensities(
+    pano, intensities, normal = lidar_to_pano_with_intensities_and_normals(
         local_points_with_intensities=local_points_with_intensities,
         lidar_H=lidar_H,
         lidar_W=lidar_W,
@@ -69,7 +70,7 @@ def LiDAR_2_Pano_KITTI(
     range_view = np.zeros((lidar_H, lidar_W, 3))
     range_view[:, :, 1] = intensities
     range_view[:, :, 2] = pano
-    return range_view
+    return range_view, normal
 
 
 def generate_train_data(
@@ -96,15 +97,33 @@ def generate_train_data(
     for lidar_path in tqdm(lidar_paths):
         point_cloud = np.fromfile(lidar_path, dtype=np.float32)
         point_cloud = point_cloud.reshape((-1, points_dim))
-        pano = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics, z_offsets, laser_offsets)
+        pano, points = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics, z_offsets, laser_offsets)
+        normals = build_normal_xyz(points)
+        distances = np.linalg.norm(points, axis=2)
+
+        mask = distances >0
+
+
+        normalized_directions = points
+        normalized_directions[mask] = points[mask] / distances[mask][:, None]
+  
+
+        incident_angles = np.arccos(np.sum(normalized_directions * normals, axis=2))
+        #set to 0 with mask
+        incident_angles[~mask] = 0
+        print(incident_angles)
+
         frame_name = lidar_path.split("/")[-1]
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
-        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
+        cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
         #png_frame_name = frame_name.replace(".npy", "_depth.png")
         #print(f"Saved pic {out_dir / png_frame_name}")
         #exit()
+        #write normals with cv2
+        cv2.imwrite(out_dir / frame_name.replace(".npy", "_normals.png"), incident_angles/np.pi*255) 
+        exit()
 
 
 def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets, laser_offsets):

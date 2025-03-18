@@ -156,7 +156,7 @@ class KITTI360Dataset(BaseDataset):
             self.H_lidar = int(transform["h_lidar"])
             self.W_lidar = int(transform["w_lidar"])
             #create matrix for variable laser strenghts per laser ray with random init between 0 and 1 with gradient
-            #self.laser_strengths = torch.rand((self.H_lidar, 1), requires_grad=True)
+            #self.laser_strength = torch.rand((self.H_lidar, 1), requires_grad=True)
             #init with 0
 
  

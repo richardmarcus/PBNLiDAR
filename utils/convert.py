@@ -2,6 +2,80 @@ from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import math
+from .estimate_normals import build_normal_xyz
+def lidar_to_pano_with_intensities_and_normals_half(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True, ring=True, mask=None, laser_offsets=0):
+
+
+    local_points = local_points_with_intensities[:, :3]
+    local_point_intensities = local_points_with_intensities[:, 3]
+    # Extract coordinates
+    x = local_points[:, 0]
+    y = local_points[:, 1]
+    z = local_points[:, 2] 
+    
+    if double:
+        x = x.astype(np.float64)
+        y = y.astype(np.float64)
+        z = z.astype(np.float64)
+
+    z+= z_off
+
+    dists = np.sqrt(x**2 + y**2 + z**2)
+    #valid_mask = dists < max_depth
+    #local_point_intensities = local_point_intensities[valid_mask]
+    #dists = dists[valid_mask]
+    #x = x[valid_mask]
+    #y = y[valid_mask]
+    #z = z[valid_mask]
+
+    alpha = np.arctan2(z, np.sqrt(x**2 + y**2)) + (fov_down+laser_offsets) / 180 * np.pi
+    r = (lidar_H - alpha / (fov / 180 * np.pi / lidar_H))+0.5
+
+
+
+    beta = np.pi - np.arctan2(y, x)
+    c = (beta / (2 * np.pi / lidar_W))+0.5
+
+    #stack xyz
+    local_points = np.stack([x, y, z], axis=1)
+
+    if ring:
+        y_r = calculate_ring_ids(local_points, lidar_H*2)
+        if bot:
+            y_r-=lidar_H
+
+    if ring:
+        r = y_r
+    mask = (r >= 0) & (r < lidar_H) 
+    r = r[mask]
+    c = c[mask]
+    dists = dists[mask]
+    local_point_intensities = local_point_intensities[mask]
+    x = x[mask]
+    y = y[mask]
+    z = z[mask]
+
+
+        # Initialize pano and intensity maps
+    pano = np.zeros((lidar_H, lidar_W), dtype=np.float64)
+    intensities = np.zeros((lidar_H, lidar_W), dtype=np.float32)
+    points = np.zeros((lidar_H, lidar_W, 3), dtype=np.float32)
+
+
+    r = r.astype(np.int32)
+    c = c.astype(np.int32)%lidar_W
+
+    for y, x, dist, intensity, x_p, y_p, z_p in zip(r, c, dists, local_point_intensities, x, y, z):
+        
+        if pano[y,x] == 0 or pano[y,x] > dist:
+            pano[y,x] = dist
+            intensities[y,x] = intensity
+            points[y,x,0] = x_p
+            points[y,x,1] = y_p
+            points[y,x,2] = z_p
+
+    return pano, intensities, points
+
 
 def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True, ring=True, mask=None, laser_offsets=0):
 
@@ -62,7 +136,6 @@ def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, 
 
     for y, x, dist, intensity in zip(r, c, dists, local_point_intensities):
         
-     
         if pano[y,x] == 0:
             pano[y,x] = dist
             intensities[y,x] = intensity
@@ -174,6 +247,55 @@ def calculate_ring_ids(scan_points, height=256):
 
 
     return ring_ids
+
+
+def lidar_to_pano_with_intensities_and_normals(
+    local_points_with_intensities: np.ndarray,
+    lidar_H: int,
+    lidar_W: int,
+    lidar_K: int,
+    z_offsets,
+    max_depth=80,
+    ring=False,
+    mask=None,
+    laser_offsets=0
+
+):
+    """
+    Convert lidar frame to pano frame with intensities.
+    Lidar points are in local coordinates.
+
+    Args:
+        local_points: (N, 4), float32, in lidar frame, with intensities.
+        lidar_H: pano height.
+        lidar_W: pano width.
+        lidar_K: lidar intrinsics.
+        max_depth: max depth in meters.
+
+    Return:
+        pano: (H, W), float32.
+        intensities: (H, W), float32.
+    """
+    # Unpack lidar intrinsics
+
+    fov_up, fov, fov_up2, fov2 = lidar_K
+    fov_down = fov - fov_up
+    fov_down2 = fov2 - fov_up2
+
+    pano, intensities, normal = lidar_to_pano_with_intensities_and_normals_half(local_points_with_intensities, lidar_H//2, lidar_W, fov, fov_down, max_depth, z_offsets[0], ring=ring, mask=mask, laser_offsets=laser_offsets)
+
+    pano2, intensities2, normal2 = lidar_to_pano_with_intensities_and_normals_half(local_points_with_intensities, lidar_H//2, lidar_W, fov2, fov_down2, max_depth, z_offsets[1], bot=True, ring=ring, mask=mask, laser_offsets=laser_offsets)
+
+    #stack
+    pano = np.concatenate([pano, pano2], 0)
+    intensities = np.concatenate([intensities, intensities2], 0)
+    normal = np.concatenate([normal, normal2], 0)
+
+    return pano, intensities, normal
+    
+
+
+
 
 def lidar_to_pano_with_intensities(
     local_points_with_intensities: np.ndarray,
