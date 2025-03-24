@@ -94,7 +94,9 @@ def generate_train_data(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+        #exit()
     for lidar_path in tqdm(lidar_paths):
+
         point_cloud = np.fromfile(lidar_path, dtype=np.float32)
         point_cloud = point_cloud.reshape((-1, points_dim))
         pano, points = LiDAR_2_Pano_KITTI(point_cloud, H, W, intrinsics, z_offsets, laser_offsets)
@@ -111,19 +113,19 @@ def generate_train_data(
         incident_angles = np.arccos(np.sum(normalized_directions * normals, axis=2))
         #set to 0 with mask
         incident_angles[~mask] = 0
-        print(incident_angles)
+        pano[:,:,0] = incident_angles/np.pi
 
         frame_name = lidar_path.split("/")[-1]
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
-        cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 1]*255)
+        cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 2]*10)
         #png_frame_name = frame_name.replace(".npy", "_depth.png")
         #print(f"Saved pic {out_dir / png_frame_name}")
         #exit()
         #write normals with cv2
-        cv2.imwrite(out_dir / frame_name.replace(".npy", "_normals.png"), incident_angles/np.pi*255) 
-        exit()
+        cv2.imwrite(out_dir / frame_name.replace(".npy", "_incidence.png"),  pano[:, :, 0]*255) 
+        cv2.imwrite(out_dir / frame_name.replace(".npy", "_intensity.png"),  pano[:, :, 1]*255)
 
 
 def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets, laser_offsets):

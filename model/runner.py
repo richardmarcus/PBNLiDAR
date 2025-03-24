@@ -39,18 +39,31 @@ from torch.linalg import norm
 import torch
 
 intensity_scale = 4
+specular_power = 1
+reflectance_scale = 1
 
-def distance_falloff(distances: torch.Tensor, falloff_threshold: float = 0.0, falloff_factor: float = 2.0, scale: float = 0.012) -> torch.Tensor:
+def incidence_falloff(pred_intensity, pred_reflectance, pred_highlight, pred_specular, gt_incidence):
+    #return pred_intensity * (1-pred_specular)*gt_incidence**((pred_reflectance)**2)+ pred_specular* gt_incidence**((1+pred_highlight*99)**3)
+    #* gt_incidence**((pred_reflectance)**2)
+    return pred_intensity * gt_incidence**((pred_reflectance*10)**2)#+ pred_specular* gt_incidence**1000#((2+pred_highlight*98)**3)
+
+def distance_falloff(distances: torch.Tensor, falloff_threshold: float = 0.0, falloff_factor: float = 2.0, scale: float = 0.012, distance_fall =1.0) -> torch.Tensor:
     # Compute the distance falloff
     #return  (scale*(distances - falloff_threshold)+1)**-falloff_factor
+    #return 1 - scale * (distances -falloff_threshold)
 
-    return 1 - scale * (distances -falloff_threshold)
+    #make sure distance_fall is greater than 1
+    distance_fall = max(distance_fall, 1)
+
+    falloff_factor/=distance_fall
+
+    return  ((scale*(distances - falloff_threshold)+1)**-falloff_factor) * distance_fall - (distance_fall-1)
 
 
 def near_range_effect(distances: torch.Tensor, near_range_factor: float = 0.02, near_offset = 0) -> torch.Tensor:
-    #make sure near_offset is greater than 0
-    near_offset = max(near_offset, 0)
-    return 1 - torch.exp(-near_range_factor * ((distances+near_offset)**2))
+
+    return torch.clamp((near_offset+distances)*near_range_factor,0,1)#1 - torch.exp(-near_range_factor * ((distances+near_offset)**2))
+  
 
 
 def switch_near_range_effect(distances: torch.Tensor, fall_offs: torch.Tensor, near_range_effects: torch.Tensor, near_range_threshold: float, steepness: float = 20.0) -> torch.Tensor:
@@ -61,18 +74,18 @@ def switch_near_range_effect(distances: torch.Tensor, fall_offs: torch.Tensor, n
     return interpolation_factor * fall_offs + (1 - interpolation_factor) * near_range_effects
 
 
-def distance_normalization(distances: torch.Tensor, falloff_factor: float = 2.0, near_range_factor: float = 2.0, near_offset = 0,near_range_threshold: float = 10.0, steepness: float = 0.5, scale: float = 0.012) -> torch.Tensor:
-    depth_falloff = distance_falloff(distances, falloff_threshold=near_range_threshold, falloff_factor=falloff_factor, scale=scale)
+def distance_normalization(distances: torch.Tensor, falloff_factor: float = 2.0, near_range_factor: float = 2.0, near_offset = 0,near_range_threshold: float = 10.0, steepness: float = 3.0, scale: float = 0.012, distance_fall = 1.0) -> torch.Tensor:
+    depth_falloff = distance_falloff(distances, falloff_threshold=near_range_threshold, falloff_factor=falloff_factor, scale=scale, distance_fall=distance_fall)
     near_range = near_range_effect(distances, near_range_factor, near_offset)
     #set near_range to 1
     #near_range = torch.ones_like(near_range)
     return switch_near_range_effect(distances, depth_falloff, near_range, near_range_threshold, steepness)
    
 
-def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012, scale=0.012, near_offset = 0):
+def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012, scale=0.012, near_offset = 0, distance_fall = 1.0):
 
     print("Plotting distance normalization")
-    print("Near range threshold:", near_range_threshold, "Near range factor:", near_range_factor, "Scale:", scale, "Near offset:", near_offset)
+    print("Near range threshold:", near_range_threshold, "Near range factor:", near_range_factor, "Scale:", scale, "Near offset:", near_offset, "Distance fall:", distance_fall)
     #take distances from 0 to 80 meters
     distances = torch.linspace(0, 80, 1000).to("cuda")
     base_intensities = torch.ones_like(distances).to("cuda")
@@ -80,9 +93,9 @@ def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012,
  
     near_intensities = base_intensities* near_range_effect(distances, near_range_factor=near_range_factor,near_offset=near_offset)
 
-    simple_intensities = base_intensities * distance_falloff(distances, falloff_threshold=near_range_threshold, falloff_factor=2, scale=scale)
+    simple_intensities = base_intensities * distance_falloff(distances, falloff_threshold=near_range_threshold, falloff_factor=2, scale=scale, distance_fall=distance_fall)
 
-    intensities = base_intensities * distance_normalization(distances, near_range_factor=near_range_factor, near_range_threshold= near_range_threshold, scale=scale, near_offset=near_offset) 
+    intensities = base_intensities * distance_normalization(distances, near_range_factor=near_range_factor, near_range_threshold= near_range_threshold, scale=scale, near_offset=near_offset, distance_fall=distance_fall)
 
     #detach and convert to numpy
     distances = distances.detach().cpu().numpy()
@@ -473,7 +486,8 @@ def plot_all(data, channel, smoothing_window=5, descriptor_offset = 0):
     #plt.ylim(-0.3, 0.3)
     #save to file
     plt.savefig(f"raystrength/{descriptors[channel+descriptor_offset]}.png")
- 
+    print(f"Saved to raystrength/{descriptors[channel+descriptor_offset]}.png")
+
     plt.clf()
     #close plot
     plt.close()
@@ -872,6 +886,13 @@ class Trainer(object):
         row_inds = data["row_inds"]  # [B, N]
         col_inds = data["col_inds"]  # [B, N]
         laser_strength = self.laser_strength[row_inds,:]
+        base_mask = data["base_mask"]  
+        #base_mask is 1,1,64,1024
+        # make it B, N with row and col inds
+
+        base_mask = base_mask[:,:, row_inds, col_inds]
+        base_mask = base_mask.squeeze(1).squeeze(1)  # [B, N]
+
 
         poses_lidar = data["poses_lidar"]  # [B, 4, 4]
         poses_before = data["poses_before"]  # [B, 4, 4]
@@ -907,7 +928,7 @@ class Trainer(object):
             relative_rotation = torch.eye(3, device=rotation.device).unsqueeze(0).repeat(rotation.shape[1], 1, 1).unsqueeze(0).repeat(rotation.shape[0], 1, 1, 1)
 
         #self.plot_poses_arrows(interpolated_poses[0], scale=1.0)  
-        return translation_offset, relative_rotation, laser_strength
+        return translation_offset, relative_rotation, laser_strength, base_mask
 
     def offsets_from_positions(self, position, position_before, position_after, col_inds):
         # Assuming position, position_before, position_after are tensors of shape [B, 3]
@@ -988,6 +1009,8 @@ class Trainer(object):
         row_inds = data["row_inds"]  # [B, N]
 
         laser_strength = self.laser_strength[row_inds,:]
+        #print laser_strength mean
+        print("mean of first channel laser strength", torch.mean(laser_strength[:,0]))
         if motion:
             col_inds = data["col_inds"]  # [B, N]
 
@@ -1162,13 +1185,14 @@ class Trainer(object):
         time_lidar = data['time'] # [B, 1]
         images_lidar = data["images_lidar"]  # [B, N, 3]
 
-        motion_offset, motion_rotation, laser_strength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        motion_offset, motion_rotation, laser_strength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
 
         #self.plot_interpolation(rays_o_lidar, rays_d_lidar, data, motion_offset, motion_rotation)
         gt_raydrop = images_lidar[:, :, 0]
         gt_intensity = images_lidar[:, :, 1] * gt_raydrop
         gt_depth = images_lidar[:, :, 2] * gt_raydrop
+        gt_incidence = images_lidar[:, :, 3]
 
         outputs_lidar = self.model.render(
             rays_o_lidar + motion_offset,
@@ -1182,23 +1206,31 @@ class Trainer(object):
         
 
 
-
         pred_raydrop = outputs_lidar["image_lidar"][:, :, 0]
         #print min and max of gt_depth
-
-        
-
         pred_intensity = outputs_lidar["image_lidar"][:, :, 1] 
+
+        if self.opt.out_lidar_dim > 2:
+            pred_reflectance = outputs_lidar["image_lidar"][:, :, 2]
+            pred_highlight = torch.zeros_like(pred_intensity)
+            pred_specular = torch.zeros_like(pred_intensity)
+
         pred_depth = outputs_lidar["depth_lidar"] * gt_raydrop
 
- 
+
 
         if self.opt.raydrop_loss == 'bce':
             pred_raydrop = F.sigmoid(pred_raydrop)
 
+  
+
         # label smoothing for ray-drop
         smooth = self.opt.smooth_factor # 0.2
-        gt_raydrop_smooth = gt_raydrop.clamp(smooth, 1-smooth)
+
+
+        gt_raydrop_smooth =(gt_raydrop+(1-base_mask)).clamp(smooth, 1-smooth)
+
+        
 
         #offset loss is difference between offsets and 0.075
         #offset_loss = torch.abs(torch.abs(self.z_offsets[0]-self.z_offsets[1]) - 0.075).mean()
@@ -1206,18 +1238,28 @@ class Trainer(object):
         #strength loss that punishes values above 1 
         strength_loss = torch.relu(laser_strength - 1.0)
 
+
+        #corrected_intensity = pred_intensity * gt_incidence**((pred_reflectance*reflectance_scale)**2)
+        corrected_intensity = incidence_falloff(pred_intensity, pred_reflectance, pred_highlight, pred_specular, gt_incidence)
+
+        # make loss so that (pred_reflectance*10)**2 goes towards 1
+        reflectance_loss = torch.abs((pred_reflectance*10)**2 - 1).median()
+
         #print max of pred_intensity
         #highlight recovery
-        corrected_intensity = pred_intensity * laser_strength[:, :, 0]  * gt_raydrop * intensity_scale * distance_normalization(gt_depth/self.opt.scale,near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset)
+        corrected_intensity = corrected_intensity * laser_strength[:, :, 0]  * gt_raydrop * intensity_scale * distance_normalization(gt_depth/self.opt.scale,near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset, distance_fall=self.opt.distance_fall)
 
         #clip intensity to 0 and 1
         corrected_intensity = torch.clamp(corrected_intensity, 0, 1)
 
+
+
         lidar_loss = (
             self.opt.alpha_d * self.criterion["depth"](pred_depth, gt_depth)
             + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop_smooth)
-            + self.opt.alpha_i * self.criterion["intensity"]( corrected_intensity, gt_intensity)
-            +  0.01*strength_loss.mean()
+            + self.opt.alpha_i * self.criterion["intensity"]( corrected_intensity*base_mask, gt_intensity*base_mask)
+            + 0.01*strength_loss.mean()
+            + 0.01*reflectance_loss
          #   + 0.001*offset_loss
 
 
@@ -1403,6 +1445,7 @@ class Trainer(object):
         gt_intensity = None
         gt_depth = None
         gt_raydrop = None
+        gt_incidence = None
         loss = 0
 
         rays_o_lidar = data["rays_o_lidar"]  # [B, N, 3]
@@ -1411,13 +1454,20 @@ class Trainer(object):
         images_lidar = data["images_lidar"]  # [B, H, W, 3]
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
         #gives line ids for each ray
-        motion_offset, motion_rotation, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        motion_offset, motion_rotation, optimized_laserstrength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
-       
 
         gt_raydrop = images_lidar[:, :, :, 0]
-        gt_intensity = images_lidar[:, :, :, 1] * gt_raydrop
+        gt_intensityb = images_lidar[:, :, :, 1] 
+        gt_intensity = gt_intensityb * gt_raydrop
+
+        #check if there is a difference between gt_intensity and gt_intensityb
+        print("difference", torch.max(gt_intensity-gt_intensityb))
+
         gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
+        gt_incidence = images_lidar[:, :, :, 3]**specular_power
+
+
 
         outputs_lidar = self.model.render(
             rays_o_lidar + motion_offset,
@@ -1428,9 +1478,28 @@ class Trainer(object):
             **vars(self.opt),
         )
 
-        pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, 2)
+        pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, self.opt.out_lidar_dim)
         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
         pred_intensity = pred_rgb_lidar[:, :, :, 1]
+        if self.opt.out_lidar_dim > 2:
+            pred_reflectance = pred_rgb_lidar[:, :, :, 2]
+            if self.opt.out_lidar_dim > 3:
+                pred_highlight = pred_rgb_lidar[:, :, :, 3]
+                pred_specular = pred_rgb_lidar[:, :, :, 4]
+            else:
+                pred_highlight = torch.zeros_like(pred_intensity)
+                pred_specular = torch.zeros_like(pred_intensity)
+                pred_reflectance= torch.stack([pred_reflectance, pred_reflectance, pred_reflectance], dim=-1)
+        else:
+            pred_reflectance = torch.ones_like(pred_intensity)
+            #repeat x3
+            pred_reflectance = pred_reflectance.unsqueeze(-1).repeat(1, 1, 1, 3)
+  
+        base_mask = base_mask.reshape(-1, H_lidar, W_lidar)
+
+
+        #make 3 chann
+
         pred_depth = outputs_lidar["depth_lidar"].reshape(-1, H_lidar, W_lidar)
         mult_laser = optimized_laserstrength[:,:,0].reshape(-1, H_lidar, W_lidar)
         add_laser = optimized_laserstrength[:,:,1].reshape(-1, H_lidar, W_lidar)
@@ -1456,11 +1525,13 @@ class Trainer(object):
         if False:
             loss_mask = raydrop_mask
         else:
-            loss_mask = gt_raydrop
+            loss_mask = gt_raydrop #* base_mask #* raydrop_mask
+
+
 
         lidar_loss = (
             self.opt.alpha_d * self.criterion["depth"](pred_depth * loss_mask, gt_depth).mean()
-            + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop).mean()
+            + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, torch.clamp(base_mask+loss_mask, 0,1)).mean()
             + self.opt.alpha_i * self.criterion["intensity"]((pred_intensity)* loss_mask, gt_intensity).mean()
         )
 
@@ -1473,7 +1544,10 @@ class Trainer(object):
             gt_intensity,
             gt_depth,
             gt_raydrop,
+            gt_incidence,
             loss,
+            pred_reflectance,
+            mult_laser
         )
 
     def test_step(self, data, perturb=False):
@@ -1488,7 +1562,7 @@ class Trainer(object):
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
 
 
-        motion_offset, motion_rotation, optimized_laserstrength = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        motion_offset, motion_rotation, optimized_laserstrength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
         
         outputs_lidar = self.model.render(
             rays_o_lidar + motion_offset,
@@ -1537,7 +1611,8 @@ class Trainer(object):
                 plot_all(self.laser_strength,i)
 
 
-        plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset)
+
+        plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall)
 
         #plot_laser_offset(self.fov_lidar.detach().cpu().numpy(), self.z_offsets.detach().cpu().numpy(), self.laser_offsets.detach().cpu().numpy())
 
@@ -1666,7 +1741,7 @@ class Trainer(object):
         average_loss = total_loss / self.local_step
         self.stats["loss"].append(average_loss)
         self.log(f"average_loss: {average_loss}.")
-        print("pred_intensity", torch.mean(pred_intensity), torch.max(pred_intensity))
+
 
 
         if not self.scheduler_update_every_step:
@@ -1715,7 +1790,10 @@ class Trainer(object):
                         gt_intensity,
                         gt_depth,
                         gt_raydrop,
+                        gt_incidence,
                         loss,
+                        preds_reflectance,
+                        mult_laser
                     ) = self.eval_step(data)
 
                 preds_mask = torch.where(preds_raydrop > 0.5, 1, 0)
@@ -1737,12 +1815,38 @@ class Trainer(object):
                     f"{name}_{self.local_step:04d}.png",
                 )
                 os.makedirs(os.path.dirname(save_path_pred), exist_ok=True)
-                
+
+             
+
+                #preds reflectance are 3 channels get all individual channels
+                preds_reflect = preds_reflectance[:, :, :, 0]
+                preds_highlight = preds_reflectance[:, :, :, 1] 
+                preds_specular = preds_reflectance[:, :, :, 2] 
+
+                        
+                ones = torch.ones_like(preds_intensity)
+                reflected_incidences = incidence_falloff(preds_intensity, preds_reflect, preds_highlight, preds_specular, gt_incidence)
+                plain_incidences = incidence_falloff(ones, preds_reflect, preds_highlight, preds_specular, gt_incidence)
+   
+                depth_normalization = distance_normalization(preds_depth/self.opt.scale,near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset)
+
+                reflected_incidences = reflected_incidences * mult_laser * depth_normalization
+                #clamp to 0-1
+                depth_normalization = torch.clamp(depth_normalization, 0, 1)
+                img_depth_normalization = (depth_normalization[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_depth_normalization = cv2.applyColorMap(img_depth_normalization, 1)
 
                 pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
                 img_raydrop = (pred_raydrop * 255).astype(np.uint8)
                 img_raydrop = cv2.cvtColor(img_raydrop, cv2.COLOR_GRAY2BGR)
 
+                reflected_incidences = reflected_incidences[0].detach().cpu().numpy()
+                img_reflected_incidences = (reflected_incidences * 255).astype(np.uint8)
+                img_reflected_incidences = cv2.applyColorMap(img_reflected_incidences, 1)
+
+                plain_incidences = plain_incidences[0].detach().cpu().numpy()
+                img_plain_incidences = (plain_incidences * 255).astype(np.uint8)
+                img_plain_incidences = cv2.applyColorMap(img_plain_incidences, 1)
 
 
                 pred_intensity = preds_intensity[0].detach().cpu().numpy()
@@ -1764,7 +1868,7 @@ class Trainer(object):
                 #img_intensity = cv2.applyColorMap(img_intensity, 1)
                 #stack it thrice to get 3 channels
                 img_intensity = np.stack([img_intensity, img_intensity, img_intensity], axis=-1)
-                print(img_intensity.shape)
+
                 #set first channel to over_clip*255
                 img_intensity[:,:,0] = 0
                 img_intensity[:,:,1] = (intensity_over*255).astype(np.uint8)
@@ -1772,6 +1876,14 @@ class Trainer(object):
                 pred_depth = preds_depth[0].detach().cpu().numpy()
                 img_depth = (pred_depth * 255).astype(np.uint8)
                 img_depth = cv2.applyColorMap(img_depth, 20)
+
+                img_reflectance = (preds_reflect[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_reflectance = cv2.applyColorMap(img_reflectance, 1)
+                img_highlight = (preds_highlight[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_highlight = cv2.applyColorMap(img_highlight, 1)
+                img_specular = (preds_specular[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_specular = cv2.applyColorMap(img_specular, 1)
+                
 
                 preds_mask = preds_mask[0].detach().cpu().numpy()
                 img_mask = (preds_mask * 255).astype(np.uint8)
@@ -1792,9 +1904,16 @@ class Trainer(object):
                 img_intensity_gt = cv2.applyColorMap(img_intensity_gt, 1)
                 img_depth_gt = (gt_depth[0].detach().cpu().numpy() * 255).astype(np.uint8)
                 img_depth_gt = cv2.applyColorMap(img_depth_gt, 20)
+                img_incidence_gt = (gt_incidence[0].detach().cpu().numpy() * 255).astype(np.uint8)
+                img_incidence_gt = cv2.applyColorMap(img_incidence_gt, 1)
 
-                img_gt = cv2.vconcat([img_raydrop, img_intensity, img_depth,
-                                      img_raydrop_gt, img_intensity_gt, img_depth_gt])
+                img_laser = mult_laser[0].detach().cpu().numpy()
+                img_laser = (img_laser * 255).astype(np.uint8)
+                img_laser = cv2.applyColorMap(img_laser, 1)
+
+          
+                img_gt = cv2.vconcat([img_raydrop, img_intensity, img_depth, img_reflectance, img_highlight, img_specular, img_depth_normalization, 
+                                      img_raydrop_gt, img_intensity_gt, img_depth_gt, img_incidence_gt, img_reflected_incidences, img_plain_incidences, img_laser])
 
                 
                 cv2.imwrite(save_path_pred, img_gt)
@@ -2320,6 +2439,7 @@ class Trainer(object):
                 if hasattr(self, param):
                     self.__setattr__(param, torch.nn.Parameter(checkpoint_dict[param].to(self.device)))
                     self.log(f"loaded {param}")
+                    print(checkpoint_dict[param])
                 else:
                     self.opt.__setattr__(param, torch.nn.Parameter(checkpoint_dict[param].to(self.device)))
                     self.log(f"loaded {param} to opt")
@@ -2327,6 +2447,7 @@ class Trainer(object):
            
             else:
                 self.log(f"not found {param}")
+
 
 
         '''

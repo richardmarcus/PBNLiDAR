@@ -26,10 +26,12 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 -0.07988049 -0.02726229 -0.00934669  0.09552395  0.0850026  -0.00946006
 -0.05684165  0.0798225   0.10324192  0.08222152"
 
+sequence="1538"
+
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
---config configs/kitti360_1538.txt \
---workspace log/kitti360_lidar4d_f1538_wip \
---experiment_name base \
+--config configs/kitti360_"$sequence".txt \
+--workspace log/kitti360_lidar4d_f"$sequence"_tune \
+--experiment_name delta \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
@@ -40,7 +42,8 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 100 \
+--eval_interval 20 \
+--out_lidar_dim 3 \
 --ckpt scratch \
 #--refine \
 #--test_eval \

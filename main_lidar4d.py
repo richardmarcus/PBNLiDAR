@@ -64,8 +64,8 @@ def get_arg_parser():
     parser.add_argument("--out_lidar_dim", type=int, default=2, help="output dim for lidar intensity/raydrop")
 
     #list of opt params
-    parser.add_argument("--opt_params", type=str, nargs="*", default=["laser_strength", "near_range_threshold", "near_range_factor", "distance_scale", "near_offset"])#, "z_offsets", "fov_lidar", "laser_offsets", "R", "T"], help="list of opt params")
-    parser.add_argument("--lr_factors", type=float, nargs="*", default=[0.1,0.9,0.2,0.01,0.1])#, 0.001, 0.001, 0.01, 0.01, 0.01], help="list of lr factors")
+    parser.add_argument("--opt_params", type=str, nargs="*", default=["laser_strength", "near_range_threshold", "near_range_factor", "distance_scale", "near_offset","distance_fall"])#, "z_offsets", "fov_lidar", "laser_offsets", "R", "T"], help="list of opt params")
+    parser.add_argument("--lr_factors", type=float, nargs="*", default=[0.1,0.05,0.05,0.002,0.1,10])#, 0.001, 0.001, 0.01, 0.01, 0.01], help="list of lr factors")
 
     ### training
     parser.add_argument("--depth_loss", type=str, default="l1", help="l1, bce, mse, huber")
@@ -338,16 +338,18 @@ def main():
     opt.laser_strength[:,  0] = 1.0#laser_strength[:, 0] *2
     opt.laser_strength = torch.nn.Parameter(opt.laser_strength.to(device))
 
-    opt.distance_scale = torch.tensor(0.001).to(device)
-    opt.near_range_threshold = torch.tensor(15.0).to(device)
-    opt.near_range_factor = torch.tensor(0.1).to(device)
-    opt.near_offset = torch.tensor(5.0).to(device)
+    opt.distance_scale = torch.tensor(0.01).to(device)
+    opt.near_range_threshold = torch.tensor(17.0).to(device)
+    opt.near_range_factor = torch.tensor(0.02).to(device)
+    opt.near_offset = torch.tensor(30.0).to(device)
+    opt.distance_fall = torch.tensor(10.0).to(device)
 
     #make nn parameters
     opt.distance_scale = torch.nn.Parameter(opt.distance_scale)
     opt.near_range_threshold = torch.nn.Parameter(opt.near_range_threshold)
     opt.near_range_factor = torch.nn.Parameter(opt.near_range_factor)
     opt.near_offset = torch.nn.Parameter(opt.near_offset)
+    opt.distance_fall = torch.nn.Parameter(opt.distance_fall)
     
 
     if opt.test or opt.test_eval or opt.refine:

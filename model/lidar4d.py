@@ -104,6 +104,44 @@ class LiDAR4D(LiDAR_Renderer):
             },
         )
 
+        self.reflectivity_net = tcnn.Network(
+            n_input_dims=self.view_encoder.n_output_dims + geo_feat_dim,
+            n_output_dims=1,
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": hidden_dim_lidar,
+                "n_hidden_layers": num_layers_lidar - 1,
+            },
+        )
+
+        self.specularity_net = tcnn.Network(
+            n_input_dims=self.view_encoder.n_output_dims + geo_feat_dim,
+            n_output_dims=1,
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": hidden_dim_lidar,
+                "n_hidden_layers": num_layers_lidar - 1,
+            },
+        )
+
+        self.highlight_net = tcnn.Network(
+            n_input_dims=self.view_encoder.n_output_dims + geo_feat_dim,
+            n_output_dims=1,
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": hidden_dim_lidar,
+                "n_hidden_layers": num_layers_lidar - 1,
+            },
+        )
+
+
+
         self.raydrop_net = tcnn.Network(
             n_input_dims=self.view_encoder.n_output_dims + geo_feat_dim,
             n_output_dims=1,
@@ -209,10 +247,26 @@ class LiDAR4D(LiDAR_Renderer):
         intensity = self.intensity_net(torch.cat([d, geo_feat], dim=-1))
         intensity = torch.sigmoid(intensity)
 
+        if self.out_lidar_dim > 2:
+            reflectivity = self.reflectivity_net(torch.cat([d, geo_feat], dim=-1))
+            reflectivity = torch.sigmoid(reflectivity)
+        #if self.out_lidar_dim > 3:
+        #    specularity = self.specularity_net(torch.cat([d, geo_feat], dim=-1))
+        #    specularity = torch.sigmoid(specularity)
+            
+            
+
         raydrop = self.raydrop_net(torch.cat([d, geo_feat], dim=-1))
         raydrop = torch.sigmoid(raydrop)
 
-        h = torch.cat([raydrop, intensity], dim=-1)
+
+        if self.out_lidar_dim > 2:
+            if self.out_lidar_dim == 3:
+                h = torch.cat([raydrop, intensity, reflectivity], dim=-1)
+            #else:
+            #    h = torch.cat([raydrop, intensity, reflectivity, specularity, highlight], dim=-1)
+        else:
+            h = torch.cat([raydrop, intensity], dim=-1)
 
         if mask is not None:
             output[mask] = h.to(output.dtype)  # fp16 --> fp32
@@ -230,6 +284,7 @@ class LiDAR4D(LiDAR_Renderer):
             {"params": self.flow_net.parameters(), "lr": 0.1 * lr},       
             {"params": self.sigma_net.parameters(), "lr": 0.1 * lr},
             {"params": self.intensity_net.parameters(), "lr": 0.1 * lr},
+            {"params": self.reflectivity_net.parameters(), "lr": 0.1 * lr},
             {"params": self.raydrop_net.parameters(), "lr": 0.1 * lr},
         ]
 

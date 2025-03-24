@@ -103,11 +103,12 @@ def main():
     val_indices = [i - s_frame_id for i in val_frame_ids]
     test_indices = [i - s_frame_id for i in test_frame_ids]
 
+
     split_to_all_indices = {
         "all": all_indices,
-        "train": train_indices,
-        "val": val_indices,
-        "test": test_indices,
+    #    "train": train_indices,
+    #    "val": val_indices,
+    #    "test": test_indices,
     }
     for split, indices in split_to_all_indices.items():
         print(f"Split {split} has {len(indices)} frames.")
@@ -120,6 +121,7 @@ def main():
             "h_lidar": lidar_h,
             "num_frames": num_frames,
             "num_frames_split": len(id_split),
+            "val_ids": val_indices,
             "frames": [
                 {
                     "frame_id": id,

@@ -55,7 +55,7 @@ def get_arg_parser():
     parser.add_argument("--geo_feat_dim", type=int, default=15, help="geo_feat_dim of sigmanet")
     parser.add_argument("--num_layers_lidar", type=int, default=3, help="num_layers of intensity/raydrop")
     parser.add_argument("--hidden_dim_lidar", type=int, default=64, help="hidden_dim of intensity/raydrop")
-    parser.add_argument("--out_lidar_dim", type=int, default=2, help="output dim for lidar intensity/raydrop")
+    parser.add_argument("--out_lidar_dim", type=int, default=3, help="output dim for lidar intensity/raydrop")
     parser.add_argument("--use_refine", type=bool, default=True, help="use ray-drop refinement")
 
     ### simulation

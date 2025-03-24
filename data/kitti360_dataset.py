@@ -1,6 +1,7 @@
 import json
 import os
 
+import cv2
 import numpy as np
 import torch
 import tqdm
@@ -135,11 +136,14 @@ class KITTI360Dataset(BaseDataset):
 
       
         # load nerf-compatible format data.
-        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}.json"))
+        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_all.json"))
+
+        #check if it exists
+        assert os.path.exists(os.path.join(self.root_path, f"transforms_{self.sequence_id}_all.json")), "File not found"
 
         with open(
             os.path.join(self.root_path, 
-                         f"transforms_{self.sequence_id}.json"),
+                         f"transforms_{self.sequence_id}_all.json"),
             "r",
         ) as f:
             transform = json.load(f)
@@ -169,6 +173,9 @@ class KITTI360Dataset(BaseDataset):
         # read images
         frames = transform["frames"]
         frames = sorted(frames, key=lambda d: d['lidar_file_path'])
+        mask_filename = "train/advanced_mask.png"
+        base_mask = cv2.imread(os.path.join(self.root_path, mask_filename), cv2.IMREAD_GRAYSCALE)
+        base_mask = 1.0- torch.from_numpy(base_mask).float().unsqueeze(0).unsqueeze(0).to(self.device) / 255.0
         if "val_ids" in transform:
             val_ids = transform["val_ids"]
             #get id of first frame
@@ -196,20 +203,21 @@ class KITTI360Dataset(BaseDataset):
         self.poses_lidar = []
         self.images_lidar = []
         self.times = []
+        self.base_mask = base_mask
 
         for f in tqdm.tqdm(frames, desc=f"Loading {self.split} data"):
             pose_lidar = np.array(f["lidar2world"], dtype=np.float32)  # [4, 4]
 
             f_lidar_path = os.path.join(self.root_path, f["lidar_file_path"])
 
-            # channel1 None, channel2 intensity , channel3 depth
+            # channel1 incidence, channel2 intensity , channel3 depth
             pc = np.load(f_lidar_path)
             ray_drop = np.where(pc.reshape(-1, 3)[:, 2] == 0.0, 0.0, 1.0).reshape(
                 self.H_lidar, self.W_lidar, 1
             )
 
             image_lidar = np.concatenate(
-                [ray_drop, pc[:, :, 1, None], pc[:, :, 2, None] * self.scale],
+                [ray_drop, pc[:, :, 1, None], pc[:, :, 2, None] * self.scale, pc[:, :, 0, None]],
                 axis=-1,
             )
 
@@ -254,7 +262,7 @@ class KITTI360Dataset(BaseDataset):
 
         #print(self.z_offsets, self.fov_lidar)
         #print(self.R.shape, self.T.shape, index)
-
+        #print(index, self.R.shape)
         R = self.R[index]
         T = self.T[index]
         
@@ -342,6 +350,7 @@ class KITTI360Dataset(BaseDataset):
                 "row_inds": rays_lidar["row_inds"],
                 "col_inds": rays_lidar["col_inds"],
                 "index": index,
+                "base_mask": self.base_mask,
 
             }
         )
