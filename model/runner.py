@@ -1246,7 +1246,7 @@ class Trainer(object):
         #print(pred_intensity.mean()*intensity_scale, corrected_intensity.mean()*intensity_scale)
 
     
-        reflectance_loss = torch.relu(0.2 - torch.median((pred_reflectance*reflectance_scale)**specular_power)*gt_raydrop)
+        reflectance_loss = torch.relu(self.opt.reflectance_target - torch.median((pred_reflectance*reflectance_scale)**specular_power)*gt_raydrop)
 
         #print max of pred_intensity
         #highlight recovery

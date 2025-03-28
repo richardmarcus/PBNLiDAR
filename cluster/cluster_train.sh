@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --gres=gpu:a40:1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --time=12:00:00
 #SBATCH --export=NONE
 
@@ -54,7 +54,7 @@ printf "Staging done\n"
 #path="$8/data/kitti360"
 
 #run run_kitti_lidar4d.sh and give staging dir as datadir
-./run_kitti_lidar4d.sh "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$STAGING_DIR"
+./run_kitti_lidar4d.sh "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$STAGING_DIR"
 
 
 #copy new/updated data to $WORK before it gets deleted

@@ -42,6 +42,7 @@ def get_arg_parser():
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
     parser.add_argument("--num_frames", type=int, default=51, help="total number of sequence frames")
     parser.add_argument("--experiment_name", type=str, default="lidar4d", help="experiment name")
+
     
 
     ### LiDAR4D
@@ -77,7 +78,7 @@ def get_arg_parser():
     parser.add_argument("--raydrop_loss", type=str, default="mse", help="l1, bce, mse, huber")
     parser.add_argument("--flow_loss", type=bool, default=True)
     parser.add_argument("--grad_loss", type=bool, default=True)
-
+    parser.add_argument("--reflectance_target", type=float, default=0.0)
     parser.add_argument("--alpha_d", type=float, default=1)
     parser.add_argument("--alpha_i", type=float, default=0.1)
     parser.add_argument("--alpha_r", type=float, default=0.01)
