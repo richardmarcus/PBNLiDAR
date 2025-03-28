@@ -3,7 +3,7 @@
 #exit on errer
 set -e
 #1538 3353
-SEQ_IDs="1728 1908 3353 2350 4950 8120 10200 10750 11400"
+SEQ_IDs="1538 1728 1908 3353 2350 4950 8120 10200 10750 11400"
 
 DATASET="kitti360"
 
@@ -30,8 +30,11 @@ do
     -0.05684165  0.0798225   0.10324192  0.08222152"
 
     python -m data.preprocess.generate_rangeview --dataset $DATASET --sequence_id $SEQ_ID --fov_lidar $FOV_LIDAR --z_offsets $Z_OFFSETS --laser_offsets $laser_offsets
-
+  
     python -m data.preprocess.kitti360_to_nerf --sequence_id $SEQ_ID
 
     python -m data.preprocess.cal_seq_config --dataset $DATASET --sequence_id $SEQ_ID --fov_lidar $FOV_LIDAR --z_offsets $Z_OFFSETS --laser_offsets $laser_offsets
 done
+
+python -m data.preprocess.generate_mask
+

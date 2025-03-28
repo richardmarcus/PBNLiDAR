@@ -52,7 +52,7 @@ def LiDAR_2_Pano_KITTI(
     ring_ids = np.concatenate((y_r, y_r2+32))
     spread_laser_offsets = laser_offsets[ring_ids.astype(np.int32)]
 
-    print(local_points_with_intensities.shape, spread_laser_offsets.shape)
+    #print(local_points_with_intensities.shape, spread_laser_offsets.shape)
     assert local_points_with_intensities.shape[0] == spread_laser_offsets.shape[0]
 
 
@@ -110,22 +110,28 @@ def generate_train_data(
         normalized_directions[mask] = points[mask] / distances[mask][:, None]
   
 
-        incident_angles = np.arccos(np.sum(normalized_directions * normals, axis=2))
-        #set to 0 with mask
-        incident_angles[~mask] = 0
-        pano[:,:,0] = incident_angles/np.pi
+        cosines = (np.sum(-normalized_directions * normals, axis=2))
+ 
 
+        
+        #pano[:,:,0] =(incident_angles)/(np.pi)
+        pano[:,:,0] = cosines
+        #clamp to 0-1
+        pano[:,:,0] = np.clip(pano[:,:,0], 0, 1)
+        pano[:,:,0][~mask] = 0
+   
         frame_name = lidar_path.split("/")[-1]
         suffix = frame_name.split(".")[-1]
         frame_name = frame_name.replace(suffix, "npy")
         np.save(out_dir / frame_name, pano)
-        cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 2]*10)
+        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_depth.png"), pano[:, :, 2]*10)
         #png_frame_name = frame_name.replace(".npy", "_depth.png")
         #print(f"Saved pic {out_dir / png_frame_name}")
         #exit()
         #write normals with cv2
-        cv2.imwrite(out_dir / frame_name.replace(".npy", "_incidence.png"),  pano[:, :, 0]*255) 
-        cv2.imwrite(out_dir / frame_name.replace(".npy", "_intensity.png"),  pano[:, :, 1]*255)
+        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_incidence.png"),  (pano[:, :, 0]*255).astype(np.uint8)) 
+        #cv2.imwrite(out_dir / frame_name.replace(".npy", "_intensity.png"),  pano[:, :, 1]*255)
+        #exit()
 
 
 def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets, laser_offsets):

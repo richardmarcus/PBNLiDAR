@@ -1,0 +1,1 @@
+bash run_kitti_lidar4d.sh "" "hi"

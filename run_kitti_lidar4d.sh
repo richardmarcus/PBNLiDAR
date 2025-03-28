@@ -5,10 +5,23 @@
 if [ $# -eq 0 ]
 then
     path="data/kitti360"
+    sequence="2350"
+    setting="rolling_shutter"
+    tag="RTopt_fresh"
+    lidar_dim="2"
+    rolling_shutter=""
+    opt_params="R T"
+    lr_factors="0.01 0.01"
 else
-    path="$1/data/kitti360"
+    sequence="$1"
+    setting="$2"
+    tag="$3"
+    opt_params="$4"
+    lr_factors="$5"
+    rolling_shutter="$6"
+    lidar_dim="$7"
+    path="$8""data/kitti360"
 fi
-
 
 
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
@@ -26,25 +39,30 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 -0.07988049 -0.02726229 -0.00934669  0.09552395  0.0850026  -0.00946006
 -0.05684165  0.0798225   0.10324192  0.08222152"
 
-sequence="1538"
 
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --config configs/kitti360_"$sequence".txt \
---workspace log/kitti360_lidar4d_f"$sequence"_tune \
---experiment_name delta \
+--workspace log/kitti360_lidar4d_f"$sequence"_"$setting" \
+--experiment_name $tag \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 10000 \
+--iters 5000 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 20 \
---out_lidar_dim 3 \
---ckpt scratch \
+--eval_interval 40 \
+--out_lidar_dim $lidar_dim \
+--motion "$rolling_shutter" \
+--opt_params $opt_params \
+--lr_factors $lr_factors \
+--flow_loss True \
+--test_eval \
+#--ckpt scratch \
+#--test_eval \
 #--refine \
 #--test_eval \
 #--ckpt scratch \

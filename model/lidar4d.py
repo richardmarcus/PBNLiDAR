@@ -277,16 +277,27 @@ class LiDAR4D(LiDAR_Renderer):
 
     # optimizer utils
     def get_params(self, lr):
-        params = [
-            {"params": self.planes_encoder.parameters(), "lr": lr},
-            {"params": self.hash_encoder.parameters(), "lr": lr},
-            {"params": self.view_encoder.parameters(), "lr": lr},
-            {"params": self.flow_net.parameters(), "lr": 0.1 * lr},       
-            {"params": self.sigma_net.parameters(), "lr": 0.1 * lr},
-            {"params": self.intensity_net.parameters(), "lr": 0.1 * lr},
-            {"params": self.reflectivity_net.parameters(), "lr": 0.1 * lr},
-            {"params": self.raydrop_net.parameters(), "lr": 0.1 * lr},
-        ]
+        if self.out_lidar_dim >2:
+            params = [
+                {"params": self.planes_encoder.parameters(), "lr": lr},
+                {"params": self.hash_encoder.parameters(), "lr": lr},
+                {"params": self.view_encoder.parameters(), "lr": lr},
+                {"params": self.flow_net.parameters(), "lr": 0.1 * lr},       
+                {"params": self.sigma_net.parameters(), "lr": 0.1 * lr},
+                {"params": self.intensity_net.parameters(), "lr": 0.1 * lr},
+                {"params": self.reflectivity_net.parameters(), "lr": 0.1 * lr},
+                {"params": self.raydrop_net.parameters(), "lr": 0.1 * lr},
+            ]
+        else:
+            params = [
+                {"params": self.planes_encoder.parameters(), "lr": lr},
+                {"params": self.hash_encoder.parameters(), "lr": lr},
+                {"params": self.view_encoder.parameters(), "lr": lr},
+                {"params": self.flow_net.parameters(), "lr": 0.1 * lr},       
+                {"params": self.sigma_net.parameters(), "lr": 0.1 * lr},
+                {"params": self.intensity_net.parameters(), "lr": 0.1 * lr},
+                {"params": self.raydrop_net.parameters(), "lr": 0.1 * lr},
+            ]
 
         return params
 

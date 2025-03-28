@@ -290,41 +290,19 @@ class Simulator(object):
             self.log("[INFO] loaded model.")
             return
         
-        if False:
+        for param in self.opt.opt_params:
+            if param in checkpoint_dict:
+                if hasattr(self, param):
+                    self.__setattr__(param, torch.nn.Parameter(checkpoint_dict[param].to(self.device)))
+                    self.log(f"loaded {param}")
+                    print(checkpoint_dict[param])
+                else:
+                    self.opt.__setattr__(param, torch.nn.Parameter(checkpoint_dict[param].to(self.device)))
+                    self.log(f"loaded {param} to opt")
         
-            if "laser_strength" in checkpoint_dict:
-                self.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
-                print("laser_strength loaded")
+            
             else:
-                print("laser_strength not found in checkpoint")
-
-            if "z_offsets" in checkpoint_dict:
-                self.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
-                print("z_offsets loaded")
-
-            if "fov_lidar" in checkpoint_dict:
-                self.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
-                print("fov_lidar loaded")
-
-            if "laser_offsets" in checkpoint_dict:
-                self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
-                print("laser_offsets loaded")
-
-            if "laser_offsets" in checkpoint_dict:
-                self.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
-                print("laser_offsets loaded")
-
-            if "velocity" in checkpoint_dict:
-                self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
-                print("velocity loaded")
-
-            if "R" in checkpoint_dict:
-                self.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
-                print("R loaded")
-
-            if "T" in checkpoint_dict:
-                self.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
-                print("T loaded")
+                self.log(f"not found {param}")
 
         missing_keys, unexpected_keys = self.model.load_state_dict(
             checkpoint_dict["model"], strict=False

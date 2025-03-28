@@ -62,17 +62,20 @@ def get_arg_parser():
     parser.add_argument("--num_layers_lidar", type=int, default=3, help="num_layers of intensity/raydrop")
     parser.add_argument("--hidden_dim_lidar", type=int, default=64, help="hidden_dim of intensity/raydrop")
     parser.add_argument("--out_lidar_dim", type=int, default=2, help="output dim for lidar intensity/raydrop")
+    parser.add_argument("--motion", type=bool, default=False, help="use motion correction (rolling shutter)")
 
     #list of opt params
-    parser.add_argument("--opt_params", type=str, nargs="*", default=["laser_strength", "near_range_threshold", "near_range_factor", "distance_scale", "near_offset","distance_fall"])#, "z_offsets", "fov_lidar", "laser_offsets", "R", "T"], help="list of opt params")
-    parser.add_argument("--lr_factors", type=float, nargs="*", default=[0.1,0.05,0.05,0.002,0.1,10])#, 0.001, 0.001, 0.01, 0.01, 0.01], help="list of lr factors")
+    parser.add_argument("--opt_params", type=str, nargs="*", default=[]#"R", "T"]#"laser_strength"]#, "near_range_threshold", "near_range_factor", "distance_scale", "near_offset","distance_fall"])#, "z_offsets", "fov_lidar", "laser_offsets", "R", "T"], help="list of opt params"
+                        )
+    parser.add_argument("--lr_factors", type=float, nargs="*", default=[]#0.01,0.01]#0.1]#,0.05,0.05,0.002,0.1,0.1])#, 0.001, 0.001, 0.01, 0.01, 0.01], help="list of lr factors"
+                        )
 
     ### training
     parser.add_argument("--depth_loss", type=str, default="l1", help="l1, bce, mse, huber")
     parser.add_argument("--depth_grad_loss", type=str, default="l1", help="l1, bce, mse, huber")
     parser.add_argument("--intensity_loss", type=str, default="mse", help="l1, bce, mse, huber")
     parser.add_argument("--raydrop_loss", type=str, default="mse", help="l1, bce, mse, huber")
-    parser.add_argument("--flow_loss", type=bool, default=False)
+    parser.add_argument("--flow_loss", type=bool, default=True)
     parser.add_argument("--grad_loss", type=bool, default=True)
 
     parser.add_argument("--alpha_d", type=float, default=1)
@@ -200,6 +203,21 @@ def num_frames_from_sequence_id(sequence_id):
 def main():
     parser = get_arg_parser()
     opt = parser.parse_args()
+
+    print(f"Iterations: {opt.iters}")
+    print(f"Config file: {opt.config}")
+    print(f"Workspace directory: {opt.workspace}")
+    print(f"Experiment name: {opt.experiment_name}")
+    print(f"Dataset path: {opt.path}")
+    print(f"Using motion correction: {opt.motion}")
+    print(f"Using flow loss: {opt.flow_loss}")
+    print(f"Checkpoint: {opt.ckpt}")
+    print(f"Lidar output dimension: {opt.out_lidar_dim}")
+    print(f"List of optimizer params: {opt.opt_params}")
+    print(f"List of learning rate factors: {opt.lr_factors}")
+    print("----------------------------------------")
+    #exit()
+
     set_seed(opt.seed)
     torch.cuda.empty_cache() 
     import os
@@ -277,7 +295,7 @@ def main():
         active_sensor=opt.active_sensor,
     )
     # print(model)
-    print(opt)
+    #print(opt)
     
     loss_dict = {
         "mse": torch.nn.MSELoss(reduction="none"),
@@ -323,6 +341,7 @@ def main():
 
     
     num_frames = num_frames_from_sequence_id(opt.sequence_id)
+
     #pose_offsets R and T for each frame
     opt.R = torch.zeros((num_frames, 3))
     #R = torch.rand((num_frames, 3), requires_grad=True)*0.4-0.2
@@ -333,24 +352,33 @@ def main():
     opt.R = torch.nn.Parameter(opt.R.to(device))
     opt.T = torch.nn.Parameter(opt.T.to(device))
 
-    opt.laser_strength = torch.zeros((laser_lines, 2))
-    #multiply first channel by 2
-    opt.laser_strength[:,  0] = 1.0#laser_strength[:, 0] *2
-    opt.laser_strength = torch.nn.Parameter(opt.laser_strength.to(device))
+    opt.laser_strength = torch.ones((laser_lines, 1)).to(device)
 
-    opt.distance_scale = torch.tensor(0.01).to(device)
-    opt.near_range_threshold = torch.tensor(17.0).to(device)
-    opt.near_range_factor = torch.tensor(0.02).to(device)
-    opt.near_offset = torch.tensor(30.0).to(device)
-    opt.distance_fall = torch.tensor(10.0).to(device)
+    #if laserstrength in opt_params, make it a nn parameter
+    if "laser_strength" in opt.opt_params:
+        opt.laser_strength = torch.nn.Parameter(opt.laser_strength)
 
-    #make nn parameters
-    opt.distance_scale = torch.nn.Parameter(opt.distance_scale)
-    opt.near_range_threshold = torch.nn.Parameter(opt.near_range_threshold)
-    opt.near_range_factor = torch.nn.Parameter(opt.near_range_factor)
-    opt.near_offset = torch.nn.Parameter(opt.near_offset)
-    opt.distance_fall = torch.nn.Parameter(opt.distance_fall)
-    
+    if False:
+        opt.distance_scale = torch.tensor(0.001).to(device)
+        opt.near_range_threshold = torch.tensor(17.0).to(device)
+        opt.near_range_factor = torch.tensor(0.002).to(device)
+        opt.near_offset = torch.tensor(0.9).to(device)
+        opt.distance_fall = torch.tensor(15.0).to(device)
+
+        #make nn parameters
+        opt.distance_scale = torch.nn.Parameter(opt.distance_scale)
+        opt.near_range_threshold = torch.nn.Parameter(opt.near_range_threshold)
+        opt.near_range_factor = torch.nn.Parameter(opt.near_range_factor)
+        opt.near_offset = torch.nn.Parameter(opt.near_offset)
+        opt.distance_fall = torch.nn.Parameter(opt.distance_fall)
+    else:
+        opt.distance_scale = torch.tensor(0).to(device)
+        opt.near_range_threshold = torch.tensor(17.0).to(device)
+        opt.near_range_factor = torch.tensor(0.).to(device)
+        opt.near_offset = torch.tensor(1).to(device)
+        opt.distance_fall = torch.tensor(15.0).to(device)
+        
+
 
     if opt.test or opt.test_eval or opt.refine:
         trainer = Trainer(
@@ -363,20 +391,7 @@ def main():
             fp16=opt.fp16,
             lidar_metrics=lidar_metrics,
             use_checkpoint=opt.ckpt,
-            laser_strength  = opt.laser_strength,
-            fov_lidar=opt.fov_lidar,
-            z_offsets=opt.z_offsets,
-            laser_offsets=opt.laser_offsets,
-            R = opt.R,
-            T = opt.T,
         )
-
-
-        opt.z_offsets = trainer.z_offsets
-        opt.fov_lidar = trainer.fov_lidar
-        opt.laser_offsets = trainer.laser_offsets
-        opt.R = trainer.R
-        opt.T = trainer.T
 
 
         if opt.refine: # optimize raydrop only
@@ -390,7 +405,7 @@ def main():
                 offset=opt.offset,
                 fp16=opt.fp16,
                 patch_size_lidar=opt.patch_size_lidar,
-                num_rays_lidar=opt.num_rays_lidar,
+                num_rays_lidar=opt.num_rays_lidar,          
                 fov_lidar=opt.fov_lidar,
                 z_offsets=opt.z_offsets,
                 laser_offsets=opt.laser_offsets,
@@ -410,7 +425,7 @@ def main():
             offset=opt.offset,
             fp16=opt.fp16,
             patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
+            num_rays_lidar=opt.num_rays_lidar,            
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
@@ -421,48 +436,20 @@ def main():
         if test_loader.has_gt and not opt.test:
             trainer.evaluate(test_loader)
 
-        trainer.test(test_loader, write_video=False)
+        #trainer.test(test_loader, write_video=False)
 
     else:  # full pipeline
-
-
-        if False:
-            num_frames = train_loader._data.__len__()
-            poses = train_loader._data.poses_lidar
-
-
-            ref_pose = poses[0]
-            inv_ref_pose = torch.linalg.inv(ref_pose)
-            poses = inv_ref_pose @ poses
-            lidar_times = train_loader._data.times
-            positions = poses[:, :3, 3]
-            velocity = calculate_velocity(positions,lidar_times)
-            #velocity = torch.zeros((num_frames, 3))
-            #magnitude of each 3d velocity
-            cpu_velocity = velocity.cpu().detach().numpy()/opt.scale*3.6
-            cpu_velocity = np.linalg.norm(cpu_velocity, axis=1)
-
-            print("mean velocity", cpu_velocity.mean())
-            velocity = torch.nn.Parameter(velocity.to(device))
-
 
 
         params = model.get_params(opt.lr)
         for param, lr_factor in zip(opt.opt_params, opt.lr_factors):
             if lr_factor > 0:
                 params.append({"params": [getattr(opt, param)], "lr": lr_factor * opt.lr})
+                print(f"Adding {param} to optimizer with lr {lr_factor * opt.lr}")
 
   
         optimizer = lambda model: torch.optim.Adam(
             params,
-            #+ [{"params": [laser_strength], "lr": 0.1 * opt.lr}] 
-            #+ [{"params": [opt.z_offsets], "lr": 0.001 * opt.lr}] 
-            #+ [{"params" :[opt.fov_lidar], "lr": 0.001* opt.lr}]
-            #
-            #+ [{"params": [R], "lr": 0.01 * opt.lr}]
-            #+ [{"params": [T], "lr": 0.01 * opt.lr}]
-            #+ [{"params": [laser_offsets], "lr": 0.01 * opt.lr}]
-             
             betas=(0.9, 0.99),
             eps=1e-15
         )
@@ -490,21 +477,8 @@ def main():
             lr_scheduler=scheduler,
             scheduler_update_every_step=True,
             eval_interval=opt.eval_interval,
-            laser_strength  = opt.laser_strength,
-            fov_lidar = opt.fov_lidar,
-            z_offsets = opt.z_offsets,
-            laser_offsets = opt.laser_offsets,
-            R = opt.R,
-            T = opt.T,
+
         )
-
-
-        opt.z_offsets = trainer.z_offsets
-        opt.fov_lidar = trainer.fov_lidar
-        opt.laser_offsets = trainer.laser_offsets
-        opt.R = trainer.R
-        opt.T = trainer.T
-
 
         train_loader = NeRFDataset(
             device=device,
@@ -516,7 +490,7 @@ def main():
             offset=opt.offset,
             fp16=opt.fp16,
             patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
+            num_rays_lidar=opt.num_rays_lidar,            
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
@@ -534,7 +508,7 @@ def main():
             offset=opt.offset,
             fp16=opt.fp16,
             patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
+            num_rays_lidar=opt.num_rays_lidar,          
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
@@ -553,7 +527,7 @@ def main():
             offset=opt.offset,
             fp16=opt.fp16,
             patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
+            num_rays_lidar=opt.num_rays_lidar,           
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
@@ -568,7 +542,6 @@ def main():
 
 
         # also test
-        '''
         test_loader = NeRFDataset(
             device=device,
             split="test",
@@ -579,15 +552,15 @@ def main():
             offset=opt.offset,
             fp16=opt.fp16,
             patch_size_lidar=opt.patch_size_lidar,
-            num_rays_lidar=opt.num_rays_lidar,
+            num_rays_lidar=opt.num_rays_lidar,          
             fov_lidar=opt.fov_lidar,
             z_offsets=opt.z_offsets,
             laser_offsets=opt.laser_offsets,
             R = opt.R,
             T = opt.T,
         ).dataloader()
-        '''
-        test_loader = valid_loader
+        
+        #test_loader = valid_loader
         if test_loader.has_gt:
             trainer.evaluate(test_loader)  # evaluate metrics
 

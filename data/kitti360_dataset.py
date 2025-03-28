@@ -212,7 +212,7 @@ class KITTI360Dataset(BaseDataset):
 
             # channel1 incidence, channel2 intensity , channel3 depth
             pc = np.load(f_lidar_path)
-            ray_drop = np.where(pc.reshape(-1, 3)[:, 2] == 0.0, 0.0, 1.0).reshape(
+            ray_drop = np.where(pc.reshape(-1, 3)[:, 0] == 0.0, 0.0, 1.0).reshape(
                 self.H_lidar, self.W_lidar, 1
             )
 
@@ -257,12 +257,7 @@ class KITTI360Dataset(BaseDataset):
 
         poses_lidar = self.poses_lidar[index].to(self.device)  # [B, 4, 4]
 
-        #print(len(self.poses_lidar), "poses_lidar")
-        #print(poses_lidar)
 
-        #print(self.z_offsets, self.fov_lidar)
-        #print(self.R.shape, self.T.shape, index)
-        #print(index, self.R.shape)
         R = self.R[index]
         T = self.T[index]
         
@@ -365,10 +360,11 @@ class KITTI360Dataset(BaseDataset):
             indices = self.selected_ids
             #to list
             indices = list(indices)
-            print(indices, list(range(size)))
+            #print(indices, list(range(size)))
         else:
             indices = list(range(size))
             print(indices)
+            print("Error: No val_ids found in transform file. Please check the file.")
             exit()
 
         #list(range(1,size+1)),

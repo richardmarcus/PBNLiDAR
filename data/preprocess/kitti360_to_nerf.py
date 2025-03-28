@@ -100,7 +100,7 @@ def main():
     # Split by train/test/val.
     all_indices = [i - s_frame_id for i in frame_ids]
     train_indices = [i - s_frame_id for i in train_frame_ids]
-    val_indices = [i - s_frame_id for i in val_frame_ids]
+    val_indices = [i  for i in val_frame_ids]
     test_indices = [i - s_frame_id for i in test_frame_ids]
 
 
