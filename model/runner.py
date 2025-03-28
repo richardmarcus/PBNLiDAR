@@ -1245,8 +1245,8 @@ class Trainer(object):
 
         #print(pred_intensity.mean()*intensity_scale, corrected_intensity.mean()*intensity_scale)
 
-        # make loss so that the median (pred_reflectance*)**1 stays greater than 1
-        reflectance_loss = 0#torch.relu(0.5 - torch.median((pred_reflectance*reflectance_scale)**specular_power))
+    
+        reflectance_loss = torch.relu(0.2 - torch.median((pred_reflectance*reflectance_scale)**specular_power)*gt_raydrop)
 
         #print max of pred_intensity
         #highlight recovery
@@ -1263,7 +1263,7 @@ class Trainer(object):
             + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop_smooth)
             + self.opt.alpha_i * self.criterion["intensity"]( corrected_intensity, gt_intensity)
             + 0.01*strength_loss.mean()
-            #+ 0.01*reflectance_loss
+            + 0.01*reflectance_loss
          #   + 0.001*offset_loss
 
 
@@ -1484,6 +1484,7 @@ class Trainer(object):
         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
         pred_intensity = pred_rgb_lidar[:, :, :, 1]
         pred_intensity = pred_intensity*intensity_scale
+        
         if self.opt.out_lidar_dim > 2:
             pred_reflectance = pred_rgb_lidar[:, :, :, 2]
             corrected_intensity = incidence_falloff(pred_intensity, pred_reflectance, gt_incidence)
@@ -1502,11 +1503,10 @@ class Trainer(object):
         mult_laser = optimized_laserstrength.reshape(-1, H_lidar, W_lidar)
 
 
-        #print min and max of pred_intensity * intensity_scale
 
         corrected_intensity = corrected_intensity * mult_laser * distance_normalization(pred_depth/self.opt.scale, near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset, distance_fall=self.opt.distance_fall) 
 
-       
+        corrected_intensity = torch.clamp(corrected_intensity, 0, 1)
 
         if self.opt.raydrop_loss == 'bce':
             pred_raydrop = F.sigmoid(pred_raydrop)
@@ -1824,7 +1824,7 @@ class Trainer(object):
                 preds_reflect = preds_reflectance
 
                 reflected_incidences = incidence_falloff(preds_intensity, preds_reflect, gt_incidence)
-                plain_incidences = incidence_falloff(torch.ones_like(preds_intensity), preds_reflect, gt_incidence)-torch.ones_like(preds_intensity)
+                plain_incidences = incidence_falloff(torch.ones_like(preds_intensity), preds_reflect, gt_incidence)
 
                 #preds_reflect = ((preds_reflect* reflectance_scale)**specular_power).clamp(0,1)
    
@@ -2228,7 +2228,7 @@ class Trainer(object):
                     )
 
 
-            pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, 2)
+            pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, self.opt.out_lidar_dim)
             pred_raydrop = pred_rgb_lidar[:, :, :, 0]
             if  self.opt.out_lidar_dim >2:
                 pred_reflectance = pred_rgb_lidar[:, :, :, 2]
