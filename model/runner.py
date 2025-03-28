@@ -1601,17 +1601,17 @@ class Trainer(object):
         self.log(f"fov_lidar: {self.opt.fov_lidar.detach().cpu().numpy()}")
         self.log(f"z_offsets: {self.opt.z_offsets.detach().cpu().numpy()}")
 
-        if self.opt.laser_strength.grad is not None:
+        #if self.opt.laser_strength.grad is not None:
             #print("mean grad", self.opt.laser_strength.grad.mean().item())
             #for i in range(self.opt.laser_strength.shape[1]):
             #    print_all(i)
-            for i in range(self.opt.laser_strength.shape[1]):
-                plot_all(self.opt.laser_strength,i)
-                break
+        #    for i in range(self.opt.laser_strength.shape[1]):
+        #       plot_all(self.opt.laser_strength,i)
+        #       break
 
 
 
-        plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall)
+        #plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall)
 
         #plot_laser_offset(self.opt.fov_lidar.detach().cpu().numpy(), self.opt.z_offsets.detach().cpu().numpy(), self.opt.laser_offsets.detach().cpu().numpy())
 

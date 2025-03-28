@@ -47,20 +47,19 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 5000 \
+--iters 30000 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 40 \
+--eval_interval 200 \
 --out_lidar_dim $lidar_dim \
 --motion "$rolling_shutter" \
 --opt_params $opt_params \
 --lr_factors $lr_factors \
 --flow_loss True \
---test_eval \
 #--ckpt scratch \
 #--test_eval \
 #--refine \
