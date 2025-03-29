@@ -13,6 +13,7 @@ then
     opt_params="R T"
     lr_factors="0.01 0.01"
     reflectance_target=0.0
+    exit 0
 else
     sequence="$1"
     setting="$2"
@@ -25,6 +26,9 @@ else
     path="$9""data/kitti360"
 
 fi
+
+echo $sequence
+exit 0
 
 flow="True"
 flow=""
@@ -66,7 +70,7 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
---refine \
+#--refine \
 #--refine \
 #--ckpt scratch \
 #--test_eval \
