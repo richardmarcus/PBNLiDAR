@@ -26,7 +26,7 @@ else
 
 fi
 
-flow=""
+flow="True"
 
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
 Z_OFFSETS="-0.20287499 -0.12243641"
@@ -58,14 +58,14 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 10 \
+--eval_interval 200 \
 --out_lidar_dim $lidar_dim \
 --motion "$rolling_shutter" \
 --opt_params $opt_params \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
---ckpt scratch \
+#--ckpt scratch \
 #--test_eval \
 #--ckpt scratch \
 #--test_eval \
