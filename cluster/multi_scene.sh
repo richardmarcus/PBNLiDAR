@@ -22,5 +22,8 @@ do
   #sbatch --job-name=${SEQ_ID}_laser cluster/cluster_train.sh $SEQ_ID "laser" $tag "laser_strength" "0.1" "" 2 0.0
   #sbatch --job-name=${SEQ_ID}_reflectance cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.0
   #sbatch --job-name=${SEQ_ID}_reflectance2 cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.2
-  sbatch --job-name=${SEQ_ID}_imask cluster/cluster_train.sh $SEQ_ID "imask" $tag "" "" "" 2 0.0
+  #sbatch --job-name=${SEQ_ID}_imask cluster/cluster_train.sh $SEQ_ID "imask" $tag "" "" "" 2 0.0
+  sbatch --job-name=${SEQ_ID}_distance cluster/cluster_train.sh $SEQ_ID "distance" $tag "near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.05 0.05 0.01 0.1 0.1" "" 2 0.0
+  sbatch --job-name=${SEQ_ID}_reflectance_nmask cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.2
+  sbatch --jobname=${SEQ_ID}_combined_imask_nmask cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.2
 done

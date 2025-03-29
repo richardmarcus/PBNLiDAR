@@ -50,7 +50,7 @@ def build_normal_xyz(xyz):
     # Apply bilateral filter to smooth normals while preserving edges
     
 
-    if True :
+    if True: 
 
         gradient_y = np.abs(Sxy) + np.abs(Syy) + np.abs(Szy)
         

@@ -99,6 +99,7 @@ def get_arg_parser():
     parser.add_argument("--raydrop_ratio", type=float, default=0.5)
     parser.add_argument("--smooth_factor", type=float, default=0.2)
     parser.add_argument("--use_imask", action="store_true", help="use intensity mask")
+    parser.add_argument("--use_nmask", action="store_true", help="use normal mask")
 
     parser.add_argument("--iters", type=int, default=30000, help="training iters")
     parser.add_argument("--lr", type=float, default=1e-2, help="initial learning rate")
@@ -207,6 +208,8 @@ def main():
     opt = parser.parse_args()
     if "imask" in opt.workspace:
         opt.use_imask = True
+    if "nmask" in opt.workspace:
+        opt.use_nmask = True
 
 
     print(f"Iterations: {opt.iters}")
@@ -222,6 +225,7 @@ def main():
     print(f"List of learning rate factors: {opt.lr_factors}")
     print(f"Reflectance target: {opt.reflectance_target}")
     print(f"Use intensity mask: {opt.use_imask}")
+    print(f"Use normal mask edges: {opt.use_nmask}")
     print("----------------------------------------")
   
 
@@ -365,12 +369,12 @@ def main():
     if "laser_strength" in opt.opt_params:
         opt.laser_strength = torch.nn.Parameter(opt.laser_strength)
 
-    if False:
-        opt.distance_scale = torch.tensor(0.001).to(device)
-        opt.near_range_threshold = torch.tensor(17.0).to(device)
-        opt.near_range_factor = torch.tensor(0.002).to(device)
-        opt.near_offset = torch.tensor(0.9).to(device)
-        opt.distance_fall = torch.tensor(15.0).to(device)
+    if "distance_scale" in opt.opt_params:
+        opt.distance_scale = torch.tensor(0.01).to(device)
+        opt.near_range_threshold = torch.tensor(14.0).to(device)
+        opt.near_range_factor = torch.tensor(0.42).to(device)
+        opt.near_offset = torch.tensor(2.0).to(device)
+        opt.distance_fall = torch.tensor(5.0).to(device)
 
         #make nn parameters
         opt.distance_scale = torch.nn.Parameter(opt.distance_scale)
@@ -379,11 +383,11 @@ def main():
         opt.near_offset = torch.nn.Parameter(opt.near_offset)
         opt.distance_fall = torch.nn.Parameter(opt.distance_fall)
     else:
-        opt.distance_scale = torch.tensor(0).to(device)
-        opt.near_range_threshold = torch.tensor(17.0).to(device)
-        opt.near_range_factor = torch.tensor(0.).to(device)
-        opt.near_offset = torch.tensor(1).to(device)
-        opt.distance_fall = torch.tensor(15.0).to(device)
+        opt.distance_scale = torch.tensor(0.01).to(device)
+        opt.near_range_threshold = torch.tensor(14.0).to(device)
+        opt.near_range_factor = torch.tensor(0.45).to(device)
+        opt.near_offset = torch.tensor(2.0).to(device)
+        opt.distance_fall = torch.tensor(5.0).to(device)
         
 
 
@@ -412,12 +416,13 @@ def main():
                 offset=opt.offset,
                 fp16=opt.fp16,
                 patch_size_lidar=opt.patch_size_lidar,
-                num_rays_lidar=opt.num_rays_lidar,          
+                num_rays_lidar=opt.num_rays_lidar,
                 fov_lidar=opt.fov_lidar,
                 z_offsets=opt.z_offsets,
                 laser_offsets=opt.laser_offsets,
                 R = opt.R,
                 T = opt.T,
+                nmask = opt.use_nmask,
             ).dataloader()
 
             trainer.refine(refine_loader)
@@ -438,6 +443,7 @@ def main():
             laser_offsets=opt.laser_offsets,
             R = opt.R,
             T = opt.T,
+                nmask = opt.use_nmask,
         ).dataloader()
 
         if test_loader.has_gt and not opt.test:
@@ -503,6 +509,7 @@ def main():
             laser_offsets=opt.laser_offsets,
             R = opt.R,
             T = opt.T,
+                nmask = opt.use_nmask,
         ).dataloader()
 
         valid_loader = NeRFDataset(
@@ -521,6 +528,7 @@ def main():
             laser_offsets=opt.laser_offsets,
             R = opt.R,
             T = opt.T,
+                nmask = opt.use_nmask,
         ).dataloader()
 
         # optimize raydrop
@@ -540,6 +548,7 @@ def main():
             laser_offsets=opt.laser_offsets,
             R = opt.R,
             T = opt.T,
+                nmask = opt.use_nmask,
         ).dataloader()
 
 
@@ -565,6 +574,7 @@ def main():
             laser_offsets=opt.laser_offsets,
             R = opt.R,
             T = opt.T,
+                nmask = opt.use_nmask,
         ).dataloader()
         
         #test_loader = valid_loader

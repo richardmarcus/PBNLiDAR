@@ -76,6 +76,7 @@ class KITTI360Dataset(BaseDataset):
     laser_offsets: list = field(default_factory=list)  # alpha_offset, alpha_offset_bot
     R: torch.Tensor = None
     T: torch.Tensor = None
+    nmask: bool = False
 
 
     def __post_init__(self):
@@ -217,7 +218,11 @@ class KITTI360Dataset(BaseDataset):
 
             # channel1 incidence, channel2 intensity , channel3 depth
             pc = np.load(f_lidar_path)
-            ray_drop = np.where(pc.reshape(-1, 3)[:, 0] == 0.0, 0.0, 1.0).reshape(
+            mask_thresh=0.0
+            if self.nmask:
+                mask_thresh = 0.01
+
+            ray_drop = np.where(pc.reshape(-1, 3)[:, 0] <= mask_thresh, 0.0, 1.0).reshape(
                 self.H_lidar, self.W_lidar, 1
             )
 

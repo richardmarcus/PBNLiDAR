@@ -3,7 +3,8 @@
 #exit on errer
 set -e
 #1538 3353
-SEQ_IDs="1538 1728 1908 3353 2350 4950 8120 10200 10750 11400"
+#SEQ_IDs="1538 1728 1908 3353 2350 4950 8120 10200 10750 11400"
+SEQ_IDs="2350"
 
 DATASET="kitti360"
 
@@ -37,4 +38,5 @@ do
 done
 
 python -m data.preprocess.generate_mask
+python -m data.preprocess.generate_intensitymask
 
