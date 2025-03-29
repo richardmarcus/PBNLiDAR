@@ -119,7 +119,9 @@ def _get_frame_ids(sequence_id):
         s_frame_id = 11400
         e_frame_id = 11450
     else:
-        raise ValueError(f"Invalid sequence id: {sequence_id}")
+        s_frame_id = int(sequence_id)
+        e_frame_id = s_frame_id + 50
+        #raise ValueError(f"Invalid sequence id: {sequence_id}")
 
     return s_frame_id, e_frame_id
 

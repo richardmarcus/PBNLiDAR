@@ -122,7 +122,9 @@ class KITTI360Dataset(BaseDataset):
             frame_start = 11400
             frame_end = 11450
         else:
-            raise ValueError(f"Invalid sequence id: {sequence_id}")
+            frame_start = int(self.sequence_id)
+            frame_end = int(self.sequence_id) + 50
+            #raise ValueError(f"Invalid sequence id: {sequence_id}")
         
         print(f"Using sequence {frame_start}-{frame_end}")
         self.frame_start = frame_start
@@ -137,14 +139,14 @@ class KITTI360Dataset(BaseDataset):
 
       
         # load nerf-compatible format data.
-        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_all.json"))
+        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_0000_all.json"))
 
         #check if it exists
-        assert os.path.exists(os.path.join(self.root_path, f"transforms_{self.sequence_id}_all.json")), "File not found"
+        assert os.path.exists(os.path.join(self.root_path, f"transforms_{self.sequence_id}_0000_all.json")), "File not found"
 
         with open(
             os.path.join(self.root_path, 
-                         f"transforms_{self.sequence_id}_all.json"),
+                         f"transforms_{self.sequence_id}_0000_all.json"),
             "r",
         ) as f:
             transform = json.load(f)
@@ -214,8 +216,9 @@ class KITTI360Dataset(BaseDataset):
         for f in tqdm.tqdm(frames, desc=f"Loading {self.split} data"):
             pose_lidar = np.array(f["lidar2world"], dtype=np.float32)  # [4, 4]
 
-            f_lidar_path = os.path.join(self.root_path, f["lidar_file_path"])
 
+            f_lidar_path = os.path.join(self.root_path, f["lidar_file_path"])
+            f_lidar_path=f_lidar_path.replace("_0000", "")
             # channel1 incidence, channel2 intensity , channel3 depth
             pc = np.load(f_lidar_path)
             mask_thresh=0.0

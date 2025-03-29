@@ -119,6 +119,7 @@ class KITTI360Loader:
         Returns:
             velo_to_worlds
         """
+        print(sequence_name	, frame_ids)
         velo_to_world_dict = self._load_all_lidars(sequence_name, interpolation)
         # velo_to_worlds = [velo_to_world_dict[frame_id] for frame_id in frame_ids]
         velo_to_worlds = []
@@ -127,6 +128,8 @@ class KITTI360Loader:
                 velo_to_worlds.append(velo_to_world_dict[frame_id])
                 tmp = velo_to_world_dict[frame_id]
             else:
+                print(f"Frame {frame_id} not found in velo_to_world_dict.")
+                print(velo_to_world_dict.keys())
                 velo_to_worlds.append(tmp)
         velo_to_worlds = np.stack(velo_to_worlds)
         return velo_to_worlds

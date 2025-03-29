@@ -199,7 +199,9 @@ def num_frames_from_sequence_id(sequence_id):
         frame_start = 11400
         frame_end = 11450
     else:
-        raise ValueError(f"Invalid sequence id: {sequence_id}")
+        frame_start = int(sequence_id)
+        frame_end = int(sequence_id) + 50
+        #raise ValueError(f"Invalid sequence id: {sequence_id}")
     
     return frame_end - frame_start + 1
 
@@ -255,10 +257,10 @@ def main():
     if opt.dataloader == "kitti360":
         from data.kitti360_dataset import KITTI360Dataset as NeRFDataset
 
-        if opt.sequence_id not in kitti360_sequence_ids:
-            raise ValueError(
-                f"Unknown sequence id {opt.sequence_id} for {opt.dataloader}"
-            )
+        #if opt.sequence_id not in kitti360_sequence_ids:
+        #    raise ValueError(
+        #        f"Unknown sequence id {opt.sequence_id} for {opt.dataloader}"
+        #    )
     # elif opt.dataloader == "nuscenes":
     #     from data.nus_dataset import NusDataset as NeRFDataset
     else:

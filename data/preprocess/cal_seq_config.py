@@ -22,6 +22,12 @@ def get_arg_parser():
         default="4950",
         help="choose start",
     )
+    parser.add_argument(
+        "--scene_id",
+        type=str,
+        default="0000",
+        help="scene id",
+    )
     parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
     parser.add_argument("--laser_offsets", type=float, nargs="*", default=0, help="offset of lasers")
@@ -70,10 +76,10 @@ def cal_centerpose_bound_scale(
     return scale, centerpose
 
 
-def get_path_pose_from_json(root_path, sequence_id):
+def get_path_pose_from_json(root_path, sequence_id, scene_id):
     with open(
         #os.path.join(root_path, f"transforms_{sequence_id}_train.json"), "r"
-        os.path.join(root_path, f"transforms_{sequence_id}_all.json"), "r"
+        os.path.join(root_path, f"transforms_{sequence_id}_{scene_id}_all.json"), "r"
     ) as f:
         transform = json.load(f)
     num_frames = transform["num_frames"]
@@ -98,7 +104,7 @@ def main():
     sequence_id = args.sequence_id
 
     lidar_rangeview_paths, lidar2worlds, num_frames = get_path_pose_from_json(
-        root_path, sequence_id=sequence_id
+        root_path, sequence_id=sequence_id, scene_id=args.scene_id
     )
     fov_lidar = args.fov_lidar
     z_offsets = args.z_offsets
@@ -109,7 +115,7 @@ def main():
 
     scale, centerpose = cal_centerpose_bound_scale(lidar_rangeview_paths, lidar2worlds, fov_lidar, z_offsets, laser_offsets)
 
-    config_path = f"configs/{args.dataset}_{args.sequence_id}.txt"
+    config_path = f"configs/{args.dataset}_{args.sequence_id}_{args.scene_id}.txt"
     with open(config_path, "w") as f:
         f.write("dataloader = {}\n".format(args.dataset))
         f.write("path = {}\n".format(root_path))
