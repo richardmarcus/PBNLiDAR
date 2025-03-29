@@ -9,7 +9,7 @@ SEQ_IDs=(2350 4950 8120 10200 10750 11400)
 #lr_factors="$5"
 #rolling_shutter="$6"
 #lidar_dim="$7"
-tag="debug"
+tag="debug_refine"
 
 for SEQ_ID in ${SEQ_IDs[@]}
 do

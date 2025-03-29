@@ -404,7 +404,7 @@ def main():
             use_checkpoint=opt.ckpt,
         )
 
-
+   
         if opt.refine: # optimize raydrop only
             refine_loader = NeRFDataset(
                 device=device,
@@ -424,8 +424,8 @@ def main():
                 T = opt.T,
                 nmask = opt.use_nmask,
             ).dataloader()
-
-            trainer.refine(refine_loader)
+            print("train refine_loader")
+            trainer.refine(refine_loader, True)
 
         test_loader = NeRFDataset(
             device=device,

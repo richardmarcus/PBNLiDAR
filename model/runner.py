@@ -68,9 +68,9 @@ def distance_falloff(distances: torch.Tensor, falloff_threshold: float = 0.0, fa
     #make sure distance_fall is greater than 1
     distance_fall = max(distance_fall, 1)
 
-    falloff_factor/=distance_fall
 
-    return  ((scale*(distances - falloff_threshold)+1)**-falloff_factor) * distance_fall - (distance_fall-1)
+
+    return  ((scale*(distances - falloff_threshold)+1)**-(falloff_factor/distance_fall)) * distance_fall - (distance_fall-1)
 
 
 def linear_near_range_effect(distances: torch.Tensor, near_range_factor: float = 0.02, near_offset = 0) -> torch.Tensor:
@@ -793,6 +793,7 @@ class Trainer(object):
         scheduler_update_every_step=False,  # whether to call scheduler.step() after every train step
 
     ):
+        self.checkpoint = None
         self.name = name
         self.opt = opt
         self.mute = mute
@@ -2246,7 +2247,14 @@ class Trainer(object):
 
 
 
-    def refine(self, loader):
+    def refine(self, loader, only_refine=False):
+
+
+        if only_refine:
+            if "refine" in self.checkpoint:
+                print("refine already done")
+                exit()
+
         if self.ema is not None:
             self.ema.copy_to() # load ema model weights
             self.ema = None    # no need for final model weights
@@ -2507,7 +2515,7 @@ class Trainer(object):
                 return
 
         checkpoint_dict = torch.load(checkpoint, map_location=self.device)
-
+        self.checkpoint = checkpoint
 
         for param in self.opt.opt_params:
             if param in checkpoint_dict:
