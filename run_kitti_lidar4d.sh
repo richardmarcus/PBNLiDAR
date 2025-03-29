@@ -50,13 +50,13 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 
 
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
---config configs/kitti360_"$sequence".txt \
---workspace log/kitti360_lidar4d_f"$sequence"_"$setting" \
+--config configs/kitti360_"$sequence"_"0000".txt \
+--workspace log/kitti360_lidar4d_f"$sequence"_"0000"_"$setting" \
 --experiment_name $tag \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 300 \
+--iters 30000 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \

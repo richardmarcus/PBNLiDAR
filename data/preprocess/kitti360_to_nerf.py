@@ -13,7 +13,14 @@ def get_arg_parser():
         default="4950",
         help="choose start",
     )
+    parser.add_argument(
+        "--scene_id",
+        type=str,
+        default="0000",
+        help="scene id",
+    )
     return parser
+
 
 
 def main():
@@ -25,7 +32,7 @@ def main():
     kitti_360_parent_dir = kitti_360_root.parent
 
     # Specify frames and splits.
-    sequence_name = "2013_05_28_drive_0000"
+    sequence_name = "2013_05_28_drive_"+args.scene_id
 
     sequence_id = args.sequence_id
 
@@ -90,7 +97,7 @@ def main():
     k3 = KITTI360Loader(kitti_360_root)
 
     # Get lidar paths (range view not raw data).
-    range_view_dir = kitti_360_parent_dir / "train"
+    range_view_dir = kitti_360_parent_dir / ("train_"+args.scene_id)
     range_view_paths = [
         range_view_dir / "{:010d}.npy".format(int(frame_id)) for frame_id in frame_ids
     ]
@@ -146,7 +153,7 @@ def main():
                 )
             ],
         }
-        json_path = kitti_360_parent_dir / f"transforms_{sequence_id}_{split}.json"
+        json_path = kitti_360_parent_dir / f"transforms_{sequence_id}_{args.scene_id}_{split}.json"
 
         with open(json_path, "w") as f:
             json.dump(json_dict, f, indent=2)

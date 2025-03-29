@@ -24,6 +24,12 @@ def get_arg_parser():
         default="4950",
         help="choose start",
     )
+    parser.add_argument(
+        "--scene_id",
+        type=str,
+        default="0000",
+        help="scene id",
+    )
     parser.add_argument("--z_offsets" , type=float, nargs="*", default=[0, 0], help="offset of bottom lidar location")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 26.9], help="fov up and fov range of lidar")
     parser.add_argument("--laser_offsets", type=float, nargs="*", default=0, help="offset of lasers")
@@ -134,12 +140,12 @@ def generate_train_data(
         #exit()
 
 
-def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets, laser_offsets):
+def create_kitti_rangeview(frame_start, frame_end, intrinsics, z_offsets, laser_offsets, scene_id):
     data_root = Path(__file__).parent.parent
     kitti_360_root = data_root / "kitti360" / "KITTI-360"
     kitti_360_parent_dir = kitti_360_root.parent
-    out_dir = kitti_360_parent_dir / "train"
-    sequence_name = "2013_05_28_drive_0000"
+    out_dir = kitti_360_parent_dir / ("train_"+ scene_id)
+    sequence_name = "2013_05_28_drive_"+scene_id
 
     H = 64
     W = 1024
@@ -211,10 +217,12 @@ def main():
             frame_start = 11400
             frame_end = 11450
         else:
-            raise ValueError(f"Invalid sequence id: {sequence_id}")
+            frame_start = int(args.sequence_id)
+            frame_end = int(args.sequence_id) + 50
+            #raise ValueError(f"Invalid sequence id: {sequence_id}")
         
         print(f"Generate rangeview from {frame_start} to {frame_end} ...")
-        create_kitti_rangeview(frame_start, frame_end, fov_lidar, z_offsets, laser_offsets)
+        create_kitti_rangeview(frame_start, frame_end, fov_lidar, z_offsets, laser_offsets, args.scene_id)
 
 
 if __name__ == "__main__":
