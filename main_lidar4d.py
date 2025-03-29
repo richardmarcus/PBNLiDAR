@@ -98,6 +98,7 @@ def get_arg_parser():
     parser.add_argument("--intensity_scale", type=float, default=1)
     parser.add_argument("--raydrop_ratio", type=float, default=0.5)
     parser.add_argument("--smooth_factor", type=float, default=0.2)
+    parser.add_argument("--use_imask", action="store_true", help="use intensity mask")
 
     parser.add_argument("--iters", type=int, default=30000, help="training iters")
     parser.add_argument("--lr", type=float, default=1e-2, help="initial learning rate")
@@ -112,7 +113,7 @@ def get_arg_parser():
                                                                       "1 means disabled, use [64, 32, 16] to enable, change during training")
     parser.add_argument("--change_patch_size_epoch", type=int, default=2, help="change patch_size intenvel")
     parser.add_argument("--ema_decay", type=float, default=0.95, help="use ema during training")
-
+   
     return parser
 
 def calculate_velocity(positions, times):
@@ -204,6 +205,9 @@ def num_frames_from_sequence_id(sequence_id):
 def main():
     parser = get_arg_parser()
     opt = parser.parse_args()
+    if "imask" in opt.workspace:
+        opt.use_imask = True
+
 
     print(f"Iterations: {opt.iters}")
     print(f"Config file: {opt.config}")
@@ -216,8 +220,10 @@ def main():
     print(f"Lidar output dimension: {opt.out_lidar_dim}")
     print(f"List of optimizer params: {opt.opt_params}")
     print(f"List of learning rate factors: {opt.lr_factors}")
+    print(f"Reflectance target: {opt.reflectance_target}")
+    print(f"Use intensity mask: {opt.use_imask}")
     print("----------------------------------------")
-    #exit()
+  
 
     set_seed(opt.seed)
     torch.cuda.empty_cache() 

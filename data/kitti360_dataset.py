@@ -176,6 +176,10 @@ class KITTI360Dataset(BaseDataset):
         mask_filename = "train/advanced_mask.png"
         base_mask = cv2.imread(os.path.join(self.root_path, mask_filename), cv2.IMREAD_GRAYSCALE)
         base_mask = 1.0- torch.from_numpy(base_mask).float().unsqueeze(0).unsqueeze(0).to(self.device) / 255.0
+
+        lidar_base_mask = cv2.imread(os.path.join(self.root_path, "train/advanced_intensity_mask.png"), cv2.IMREAD_GRAYSCALE)
+        lidar_base_mask = 1.0- torch.from_numpy(lidar_base_mask).float().unsqueeze(0).unsqueeze(0).to(self.device) / 255.0
+
         if "val_ids" in transform:
             val_ids = transform["val_ids"]
             #get id of first frame
@@ -204,6 +208,7 @@ class KITTI360Dataset(BaseDataset):
         self.images_lidar = []
         self.times = []
         self.base_mask = base_mask
+        self.lidar_base_mask = lidar_base_mask
 
         for f in tqdm.tqdm(frames, desc=f"Loading {self.split} data"):
             pose_lidar = np.array(f["lidar2world"], dtype=np.float32)  # [4, 4]
@@ -346,7 +351,7 @@ class KITTI360Dataset(BaseDataset):
                 "col_inds": rays_lidar["col_inds"],
                 "index": index,
                 "base_mask": self.base_mask,
-
+                "lidar_base_mask": self.lidar_base_mask,
             }
         )
 

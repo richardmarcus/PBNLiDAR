@@ -904,6 +904,10 @@ class Trainer(object):
         base_mask = base_mask[:,:, row_inds, col_inds]
         base_mask = base_mask.squeeze(1).squeeze(1)  # [B, N]
 
+        lidar_base_mask = data["lidar_base_mask"]  # [B, N]
+        lidar_base_mask = lidar_base_mask[:, :, row_inds, col_inds]
+        lidar_base_mask = lidar_base_mask.squeeze(1).squeeze(1)
+  
 
         poses_lidar = data["poses_lidar"]  # [B, 4, 4]
         poses_before = data["poses_before"]  # [B, 4, 4]
@@ -939,7 +943,7 @@ class Trainer(object):
             relative_rotation = torch.eye(3, device=rotation.device).unsqueeze(0).repeat(rotation.shape[1], 1, 1).unsqueeze(0).repeat(rotation.shape[0], 1, 1, 1)
 
         #self.plot_poses_arrows(interpolated_poses[0], scale=1.0)  
-        return translation_offset, relative_rotation, laser_strength, base_mask
+        return translation_offset, relative_rotation, laser_strength, base_mask, lidar_base_mask
 
     def offsets_from_positions(self, position, position_before, position_after, col_inds):
         # Assuming position, position_before, position_after are tensors of shape [B, 3]
@@ -1185,12 +1189,19 @@ class Trainer(object):
         time_lidar = data['time'] # [B, 1]
         images_lidar = data["images_lidar"]  # [B, N, 3]
 
-        motion_offset, motion_rotation, laser_strength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar, motion= self.opt.motion)
+        motion_offset, motion_rotation, laser_strength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar, motion= self.opt.motion)
 
 
         #self.plot_interpolation(rays_o_lidar, rays_d_lidar, data, motion_offset, motion_rotation)
         gt_raydrop = images_lidar[:, :, 0]
-        gt_intensity = images_lidar[:, :, 1] * gt_raydrop
+
+        intensity_mask = torch.ones_like(gt_raydrop)
+        imask = (images_lidar[:, :, 1] < 10) & (lidar_base_mask == 0)
+        intensity_mask[imask] = 0
+
+
+
+        gt_intensity = images_lidar[:, :, 1] * gt_raydrop * intensity_mask
         gt_depth = images_lidar[:, :, 2] * gt_raydrop
         gt_incidence = images_lidar[:, :, 3]
 
@@ -1245,12 +1256,14 @@ class Trainer(object):
 
         #print(pred_intensity.mean()*intensity_scale, corrected_intensity.mean()*intensity_scale)
 
-    
-        reflectance_loss = torch.relu(self.opt.reflectance_target - torch.median((pred_reflectance*reflectance_scale)**specular_power)*gt_raydrop)
+        if self.opt.reflectance_target>0:
+            reflectance_loss = torch.relu(self.opt.reflectance_target - torch.median((pred_reflectance*reflectance_scale)**specular_power)*gt_raydrop)
+        else:
+            reflectance_loss = 0
 
         #print max of pred_intensity
         #highlight recovery
-        corrected_intensity = corrected_intensity * laser_strength[:, :, 0]  * gt_raydrop * intensity_scale * distance_normalization(gt_depth/self.opt.scale,near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset, distance_fall=self.opt.distance_fall)
+        corrected_intensity = corrected_intensity * laser_strength[:, :, 0]  * gt_raydrop * intensity_mask* intensity_scale * distance_normalization(gt_depth/self.opt.scale,near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset, distance_fall=self.opt.distance_fall)
 
         #print(torch.min(corrected_intensity), torch.max(corrected_intensity))
         #clip intensity to 0 and 1
@@ -1458,14 +1471,24 @@ class Trainer(object):
         images_lidar = data["images_lidar"]  # [B, H, W, 3]
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
         #gives line ids for each ray
-        motion_offset, motion_rotation, optimized_laserstrength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar, motion= self.opt.motion)
+        motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar, motion= self.opt.motion)
 
+        lidar_base_mask = lidar_base_mask.reshape(-1, H_lidar, W_lidar)
 
         gt_raydrop = images_lidar[:, :, :, 0]
-        gt_intensityb = images_lidar[:, :, :, 1] 
-        gt_intensity = gt_intensityb * gt_raydrop
+        
+        intensity_mask = torch.ones_like(gt_raydrop)
+        intensity_mask[(images_lidar[:, :, :, 1] < 10) & (lidar_base_mask == 0)] = 0
 
-
+        #create full copy of intensity_mask
+        copied_intensity_mask = intensity_mask.clone()
+        #write intensity_mask to tmp
+        copied_intensity_mask = copied_intensity_mask.cpu().detach().numpy()
+        #save to tmp with cv2
+        cv2.imwrite("tmp/intensity_mask.png", copied_intensity_mask[0, :, :]*255)
+        print("saved intensity mask to tmp/intensity_mask.png")
+      
+        gt_intensity = images_lidar[:, :, :, 1] * intensity_mask* gt_raydrop 
         gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
         gt_incidence = images_lidar[:, :, :, 3]
 
@@ -1484,7 +1507,7 @@ class Trainer(object):
         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
         pred_intensity = pred_rgb_lidar[:, :, :, 1]
         pred_intensity = pred_intensity*intensity_scale
-        
+
         if self.opt.out_lidar_dim > 2:
             pred_reflectance = pred_rgb_lidar[:, :, :, 2]
             corrected_intensity = incidence_falloff(pred_intensity, pred_reflectance, gt_incidence)
@@ -1560,7 +1583,7 @@ class Trainer(object):
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
 
 
-        motion_offset, motion_rotation, optimized_laserstrength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
         
         outputs_lidar = self.model.render(
             rays_o_lidar + motion_offset,
@@ -2207,7 +2230,7 @@ class Trainer(object):
             rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
 
 
-            motion_offset, motion_rotation, optimized_laserstrength, base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+            motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
 
         
             time_lidar = data['time']

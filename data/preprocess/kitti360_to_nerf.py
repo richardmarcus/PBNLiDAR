@@ -71,7 +71,12 @@ def main():
         e_frame_id = 11450  # Inclusive
         val_frame_ids = [11410, 11420, 11430, 11440]
     else:
-        raise ValueError(f"Invalid sequence id: {sequence_id}")
+        #raise ValueError(f"Invalid sequence id: {sequence_id}")
+        s_frame_id = int(sequence_id)
+        e_frame_id = s_frame_id + 50  # Inclusive
+        val_frame_ids = [
+            s_frame_id+51
+        ]
 
     print(f"Using sequence {s_frame_id}-{e_frame_id}")
 
