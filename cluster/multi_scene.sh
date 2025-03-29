@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-SEQ_IDs=(1728 1908 3353 2350 4950 8120 10200 10750 11400)
+SEQ_IDs=(1538 1728 1908 3353 2350 4950 8120 10200 10750 11400)
 
 
 #sequence="$1"
@@ -20,6 +20,7 @@ do
   #sbatch --job-name=${SEQ_ID}_motion cluster/cluster_train.sh $SEQ_ID "motion" $tag "" "" "True" 2 0.0
   #sbatch --job-name=${SEQ_ID}_poses cluster/cluster_train.sh $SEQ_ID "poses" $tag "R T" "0.01 0.01" "" 2 0.0 
   #sbatch --job-name=${SEQ_ID}_laser cluster/cluster_train.sh $SEQ_ID "laser" $tag "laser_strength" "0.1" "" 2 0.0
-  sbatch --job-name=${SEQ_ID}_reflectance cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.0
-  sbatch --job-name=${SEQ_ID}_reflectance2 cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.2
+  #sbatch --job-name=${SEQ_ID}_reflectance cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.0
+  #sbatch --job-name=${SEQ_ID}_reflectance2 cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.2
+  sbatch --job-name=${SEQ_ID}_imask cluster/cluster_train.sh $SEQ_ID "imask" $tag "" "" "" 2 0.0
 done
