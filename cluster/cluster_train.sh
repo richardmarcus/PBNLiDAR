@@ -14,7 +14,7 @@ source activate lidar4d
 readonly JOB_CLASS="4D"
 
 # $STAGING_DIR: place shared data there
-readonly STAGING_DIR="/tmp/$USER-$JOB_CLASS/"
+readonly STAGING_DIR="/tmp/$USER-$JOB_CLASS-$9/"
 
 # create staging directory, abort if it fails
 (umask 0077; mkdir -p "$STAGING_DIR") || { echo "ERROR: creating $STAGING_DIR failed"; exit 1; }

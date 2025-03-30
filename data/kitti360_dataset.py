@@ -269,7 +269,7 @@ class KITTI360Dataset(BaseDataset):
 
         poses_lidar = self.poses_lidar[index].to(self.device)  # [B, 4, 4]
 
-  
+        print(index, self.R.shape)
         R = self.R[index]
         T = self.T[index]
         

@@ -49,19 +49,19 @@ echo "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$10"
 
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --config configs/kitti360_"$sequence"_"$scene".txt \
---workspace "$9"/log/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
+--workspace "$9"log/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
 --experiment_name $tag \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 50 \
+--iters 110 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 200 \
+--eval_interval 50 \
 --out_lidar_dim $lidar_dim \
 --motion "$rolling_shutter" \
 --opt_params $opt_params \
