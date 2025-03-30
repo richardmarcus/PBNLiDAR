@@ -13,6 +13,7 @@ then
     opt_params="R T"
     lr_factors="0.01 0.01"
     reflectance_target=0.0
+    exit 0
 else
     sequence="$1"
     setting="$2"
@@ -23,7 +24,7 @@ else
     lidar_dim="$7"
     reflectance_target="$8"
     path="$9""data/kitti360"
-
+    scene=$10
 fi
 
 flow="True"
@@ -66,6 +67,7 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
+--ckpt scratch \
 #--refine \
 #--refine \
 #--ckpt scratch \

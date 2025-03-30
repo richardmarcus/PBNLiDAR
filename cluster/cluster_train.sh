@@ -33,7 +33,7 @@ readonly STAGING_DIR="/tmp/$USER-$JOB_CLASS/"
     # TODO: place here the code to copy data to $STAGING_DIR
     # -------------------------------------------------------
     cp -r "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/data" "$STAGING_DIR/data"
-    tar -xf "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/train.tar" -C "$STAGING_DIR"
+    tar -xf "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/trainbig.tar" -C "$STAGING_DIR"
 
 
     # END OF STAGING
