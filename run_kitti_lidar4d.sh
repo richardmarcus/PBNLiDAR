@@ -27,7 +27,7 @@ else
 fi
 
 flow="True"
-flow=""
+
 
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
 Z_OFFSETS="-0.20287499 -0.12243641"
@@ -52,7 +52,7 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 30000 \
+--iters 20000 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \
