@@ -1,7 +1,11 @@
 #!/bin/bash -l
-#"0000""0003""0002 0004 " #
-SCENE_IDs="0004" # 0005 0006 0007 0009 0010"
-SEQ_IDs0000="250 500 750 1322 1572 1822 2072 2322 2572 2822 3072 3322 3572 3822 4072 4360 4610 4860 5110 5371 5932 6182 6432 6682 6932 7182 7432 7682 7932 8201 8451 8701 8951 9609 9859 10109 10375 10625 10875 11143"
+#"0000 0002 0003 0004 " #
+SCENE_IDs="0000" #0002 0003 0004 0005 0006 0007 0009 0010"
+
+
+SEQ_IDs0000="1538 1728 1908 3353 2350 4950 8120 10200 10750 11400" 
+#250 500 750 1322 1572 1822 2072 2322 2572 2822 3072 3322 3572 3822 4072 4360 4610 4860 5110 5371 5932 6182 6432 6682 6932 7182 7432 7682 7932 8201 8451 8701 8951 9609 9859 10109 10375 10625 10875 11143"
+
 SEQ_IDs0002="4391 4641 4891 5209 5459 5975 6225 6475 6771 7021 7271 7528 7778 8028 8278 8562 8812 9148 9398 9648 9940 10239 10489 10797 11047 11635 11885 12135 12385 12635 12885 13177 13498 13748 13998 14248 14498 14748 14998 15248 15498 15748"
 SEQ_IDs0003="272 397 522 647 772 897"
 SEQ_IDs0004="2914 3164 3414 3997 4247 4497 4785 5035 5285 5620 5870 6120 6408 6669 6919 7169 7419 7669 7919 8169 8419 8669 8919 9169 9419 9669 9996 10246 10496 10746 10996"
@@ -24,7 +28,7 @@ tag="big_improved"
 for SCENE_ID in $SCENE_IDs
 do
   SEQ_IDs=$(eval echo \${SEQ_IDs$SCENE_ID})
-  #echo "Processing scene $SCENE_ID with sequence IDs: $SEQ_IDs"
+  echo "Processing scene $SCENE_ID with sequence IDs: $SEQ_IDs"
   for SEQ_ID in $SEQ_IDs
   do
     echo $SCENE_ID $SEQ_ID
@@ -38,6 +42,6 @@ do
     #sbatch --job-name=${SEQ_ID}_distance cluster/cluster_train.sh $SEQ_ID "distance" $tag "near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.05 0.05 0.01 0.1 0.1" "" 2 0.0
     #sbatch --job-name=${SEQ_ID}_reflectance_nmask cluster/cluster_train.sh $SEQ_ID "reflectance_nmask" $tag "" "" "" 3 0.2
     sbatch --job-name=${SCENE_ID}_${SEQ_ID}_combined_imask_nmask cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.2 $SCENE_ID
-    exit 0
+    sbatch --job-name=${SCENE_ID}_${SEQ_ID}_combined_imask_nmask cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.0 $SCENE_ID
   done
 done
