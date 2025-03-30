@@ -24,14 +24,11 @@ else
     lidar_dim="$7"
     reflectance_target="$8"
     path="$9""data/kitti360"
-
+    scene=$10
 fi
 
-echo $sequence
-exit 0
-
 flow="True"
-flow=""
+
 
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
 Z_OFFSETS="-0.20287499 -0.12243641"
@@ -70,6 +67,7 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
+--ckpt scratch \
 #--refine \
 #--refine \
 #--ckpt scratch \
