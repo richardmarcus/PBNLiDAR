@@ -21,14 +21,15 @@ readonly STAGING_DIR="/tmp/$USER-$JOB_CLASS/"
 
 # only one job is allowed to stage data, if others run at the same time they
 # have to wait to avoid a race
+echo "Begin staging section"
 (
   exec {FD}>"$STAGING_DIR/.lock"
   flock "$FD"
-
+  echo "Enter staging section"
   # check if another job has staged data already
   if [ ! -f "$STAGING_DIR/.complete" ]; then
     # START OF STAGING
-
+    echo "Staging data to $STAGING_DIR"
     # -------------------------------------------------------
     # TODO: place here the code to copy data to $STAGING_DIR
     # -------------------------------------------------------
