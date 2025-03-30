@@ -28,7 +28,7 @@ else
 fi
 
 flow="True"
-flow=""
+#flow=""
 
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
 Z_OFFSETS="-0.20287499 -0.12243641"
@@ -49,12 +49,12 @@ echo "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$10"
 
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --config configs/kitti360_"$sequence"_"$scene".txt \
---workspace "$9"/log/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
+--workspace "$9"log/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
 --experiment_name $tag \
 --path $path \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 50 \
+--iters 30000 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \
@@ -68,7 +68,7 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
-
+#--test_eval
 #--refine \
 #--refine \
 #--ckpt scratch \
