@@ -21,14 +21,15 @@ readonly STAGING_DIR="/tmp/$USER-$JOB_CLASS/"
 
 # only one job is allowed to stage data, if others run at the same time they
 # have to wait to avoid a race
+echo "Begin staging section"
 (
   exec {FD}>"$STAGING_DIR/.lock"
   flock "$FD"
-
+  echo "Enter staging section"
   # check if another job has staged data already
   if [ ! -f "$STAGING_DIR/.complete" ]; then
     # START OF STAGING
-
+    echo "Staging data to $STAGING_DIR"
     # -------------------------------------------------------
     # TODO: place here the code to copy data to $STAGING_DIR
     # -------------------------------------------------------
@@ -57,6 +58,8 @@ printf "Staging done\n"
 #run run_kitti_lidar4d.sh and give staging dir as datadir
 ./run_kitti_lidar4d.sh "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$STAGING_DIR" "$9"
 
+mkdir -p "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/cluster_log"
+cp -r "$STAGING_DIR/log/kitti360_lidar4d_f"$1"_"$9"_"$2"" "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/cluster_log"
 
 #copy new/updated data to $WORK before it gets deleted
 #mkdir -p "/home/vault/b204dc/b204dc11/output/kitti_models/$cfg_file/$folder"
