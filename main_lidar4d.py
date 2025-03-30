@@ -213,6 +213,8 @@ def main():
     if "nmask" in opt.workspace:
         opt.use_nmask = True
 
+    #last four digits before the .txt of opt.config
+    opt.scene_id = opt.config.split("/")[-1].split(".")[0][-4:]
 
     print(f"Iterations: {opt.iters}")
     print(f"Config file: {opt.config}")
@@ -228,6 +230,8 @@ def main():
     print(f"Reflectance target: {opt.reflectance_target}")
     print(f"Use intensity mask: {opt.use_imask}")
     print(f"Use normal mask edges: {opt.use_nmask}")
+    print(f"Sequence id: {opt.sequence_id}")
+    print(f"Scene id: {opt.scene_id}")
     print("----------------------------------------")
   
 
@@ -425,6 +429,7 @@ def main():
                 R = opt.R,
                 T = opt.T,
                 nmask = opt.use_nmask,
+                scene_id = opt.scene_id,
             ).dataloader()
             print("train refine_loader")
             trainer.refine(refine_loader, True)
@@ -446,6 +451,7 @@ def main():
             R = opt.R,
             T = opt.T,
                 nmask = opt.use_nmask,
+                scene_id = opt.scene_id,
         ).dataloader()
 
         if test_loader.has_gt and not opt.test:
@@ -512,6 +518,7 @@ def main():
             R = opt.R,
             T = opt.T,
                 nmask = opt.use_nmask,
+                scene_id = opt.scene_id,
         ).dataloader()
 
         valid_loader = NeRFDataset(
@@ -531,6 +538,7 @@ def main():
             R = opt.R,
             T = opt.T,
                 nmask = opt.use_nmask,
+                scene_id = opt.scene_id,
         ).dataloader()
 
         # optimize raydrop
@@ -551,6 +559,7 @@ def main():
             R = opt.R,
             T = opt.T,
                 nmask = opt.use_nmask,
+                scene_id = opt.scene_id,
         ).dataloader()
 
 
@@ -577,6 +586,7 @@ def main():
             R = opt.R,
             T = opt.T,
                 nmask = opt.use_nmask,
+                scene_id = opt.scene_id,
         ).dataloader()
         
         #test_loader = valid_loader

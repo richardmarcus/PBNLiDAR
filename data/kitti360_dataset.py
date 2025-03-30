@@ -77,6 +77,7 @@ class KITTI360Dataset(BaseDataset):
     R: torch.Tensor = None
     T: torch.Tensor = None
     nmask: bool = False
+    scene_id: str = "9999"
 
 
     def __post_init__(self):
@@ -137,16 +138,17 @@ class KITTI360Dataset(BaseDataset):
             self.split = 'train'
             self.num_rays_lidar = -1
 
-      
+
+
         # load nerf-compatible format data.
-        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_0000_all.json"))
+        print("loading from", os.path.join(self.root_path, f"transforms_{self.sequence_id}_{self.scene_id}_all.json"))
 
         #check if it exists
-        assert os.path.exists(os.path.join(self.root_path, f"transforms_{self.sequence_id}_0000_all.json")), "File not found"
+        assert os.path.exists(os.path.join(self.root_path, f"transforms_{self.sequence_id}_{self.scene_id}_all.json")), "File not found"
 
         with open(
             os.path.join(self.root_path, 
-                         f"transforms_{self.sequence_id}_0000_all.json"),
+                         f"transforms_{self.sequence_id}_{self.scene_id}_all.json"),
             "r",
         ) as f:
             transform = json.load(f)
@@ -176,11 +178,11 @@ class KITTI360Dataset(BaseDataset):
         # read images
         frames = transform["frames"]
         frames = sorted(frames, key=lambda d: d['lidar_file_path'])
-        mask_filename = "train/advanced_mask.png"
+        mask_filename = "train_"+self.scene_id+"/advanced_mask.png"
         base_mask = cv2.imread(os.path.join(self.root_path, mask_filename), cv2.IMREAD_GRAYSCALE)
         base_mask = 1.0- torch.from_numpy(base_mask).float().unsqueeze(0).unsqueeze(0).to(self.device) / 255.0
 
-        lidar_base_mask = cv2.imread(os.path.join(self.root_path, "train/advanced_intensity_mask.png"), cv2.IMREAD_GRAYSCALE)
+        lidar_base_mask = cv2.imread(os.path.join(self.root_path, "train_"+self.scene_id+"/advanced_intensity_mask.png"), cv2.IMREAD_GRAYSCALE)
         lidar_base_mask = 1.0- torch.from_numpy(lidar_base_mask).float().unsqueeze(0).unsqueeze(0).to(self.device) / 255.0
 
         if "val_ids" in transform:
@@ -215,10 +217,7 @@ class KITTI360Dataset(BaseDataset):
 
         for f in tqdm.tqdm(frames, desc=f"Loading {self.split} data"):
             pose_lidar = np.array(f["lidar2world"], dtype=np.float32)  # [4, 4]
-
-
             f_lidar_path = os.path.join(self.root_path, f["lidar_file_path"])
-            f_lidar_path=f_lidar_path.replace("_0000", "")
             # channel1 incidence, channel2 intensity , channel3 depth
             pc = np.load(f_lidar_path)
             mask_thresh=0.0
@@ -270,7 +269,7 @@ class KITTI360Dataset(BaseDataset):
 
         poses_lidar = self.poses_lidar[index].to(self.device)  # [B, 4, 4]
 
-
+  
         R = self.R[index]
         T = self.T[index]
         

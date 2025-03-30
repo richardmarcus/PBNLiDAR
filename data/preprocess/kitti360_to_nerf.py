@@ -82,7 +82,7 @@ def main():
         s_frame_id = int(sequence_id)
         e_frame_id = s_frame_id + 50  # Inclusive
         val_frame_ids = [
-            s_frame_id+51
+            s_frame_id
         ]
 
     print(f"Using sequence {s_frame_id}-{e_frame_id}")

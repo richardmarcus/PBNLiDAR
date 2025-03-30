@@ -24,7 +24,7 @@ else
     lidar_dim="$7"
     reflectance_target="$8"
     path="$9""data/kitti360"
-    scene=$10
+    scene=${10}
 fi
 
 flow="True"
@@ -46,9 +46,10 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 -0.05684165  0.0798225   0.10324192  0.08222152"
 
 
+
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
---config configs/kitti360_"$sequence"_"0000".txt \
---workspace log/kitti360_lidar4d_f"$sequence"_"0000"_"$setting" \
+--config configs/kitti360_"$sequence"_"$scene".txt \
+--workspace log/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
 --experiment_name $tag \
 --path $path \
 --lr 1e-2 \
@@ -67,7 +68,6 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
---ckpt scratch \
 #--refine \
 #--refine \
 #--ckpt scratch \

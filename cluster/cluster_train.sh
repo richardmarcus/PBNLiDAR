@@ -33,7 +33,7 @@ readonly STAGING_DIR="/tmp/$USER-$JOB_CLASS/"
     # TODO: place here the code to copy data to $STAGING_DIR
     # -------------------------------------------------------
     cp -r "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/data" "$STAGING_DIR/data"
-    tar -xf "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/trainbig.tar" -C "$STAGING_DIR"
+    tar -xf "/home/atuin/b204dc/b204dc10/neural_rendering/nerf/LiDAR4D/train_$9.tar" -C "$STAGING_DIR"
 
 
     # END OF STAGING
@@ -55,7 +55,7 @@ printf "Staging done\n"
 #path="$9/data/kitti360"
 
 #run run_kitti_lidar4d.sh and give staging dir as datadir
-./run_kitti_lidar4d.sh "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$STAGING_DIR"
+./run_kitti_lidar4d.sh "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$STAGING_DIR" "$9"
 
 
 #copy new/updated data to $WORK before it gets deleted
