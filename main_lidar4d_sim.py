@@ -55,7 +55,7 @@ def get_arg_parser():
     parser.add_argument("--geo_feat_dim", type=int, default=15, help="geo_feat_dim of sigmanet")
     parser.add_argument("--num_layers_lidar", type=int, default=3, help="num_layers of intensity/raydrop")
     parser.add_argument("--hidden_dim_lidar", type=int, default=64, help="hidden_dim of intensity/raydrop")
-    parser.add_argument("--out_lidar_dim", type=int, default=3, help="output dim for lidar intensity/raydrop")
+    parser.add_argument("--out_lidar_dim", type=int, default=2, help="output dim for lidar intensity/raydrop")
     parser.add_argument("--use_refine", type=bool, default=True, help="use ray-drop refinement")
 
     ### simulation
@@ -63,6 +63,7 @@ def get_arg_parser():
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 13.45, -11.45, 13.45], help="fov up and fov range of lidar")
     parser.add_argument("--H_lidar", type=int, default=66, help="height of lidar range map")
     parser.add_argument("--W_lidar", type=int, default=1030, help="width of lidar range map")
+    parser.add_argument("--experiment_name", type=str, default="lidar4d", help="experiment name")
 
 
 
@@ -74,6 +75,12 @@ def get_arg_parser():
     parser.add_argument("--align_axis", action="store_true", help="align shift axis to vehicle motion direction.")
     parser.add_argument("--kitti2nus", action="store_true", help="a simple demo to change lidar configuration from kitti360 to nuscenes.")
     parser.add_argument("--interpolation_factor", type=float, default=0.0, help="interpolation factor for lidar2world")
+    parser.add_argument("--motion", type=bool, default=False, help="use motion correction (rolling shutter)")
+    #list of opt params
+    parser.add_argument("--opt_params", type=str, nargs="*", default=[]#"R", "T"]#"laser_strength"]#, "near_range_threshold", "near_range_factor", "distance_scale", "near_offset","distance_fall"])#, "z_offsets", "fov_lidar", "laser_offsets", "R", "T"], help="list of opt params"
+                        )
+    parser.add_argument("--lr_factors", type=float, nargs="*", default=[]#0.01,0.01]#0.1]#,0.05,0.05,0.002,0.1,0.1])#, 0.001, 0.001, 0.01, 0.01, 0.01], help="list of lr factors"
+                        )
 
     return parser
 
