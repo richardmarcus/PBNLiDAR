@@ -61,7 +61,7 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 50 \
+--eval_interval 200 \
 --out_lidar_dim $lidar_dim \
 --motion "$rolling_shutter" \
 --opt_params $opt_params \

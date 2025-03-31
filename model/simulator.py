@@ -118,7 +118,7 @@ class Simulator(object):
             self.log_ptr.flush()  # write immediately to file
     
     @torch.no_grad()
-    def render(self, rays_o_lidar, rays_d_lidar, times_lidar, save_pc=True, save_img=True, save_video=True):
+    def render(self, rays_o_lidar, rays_d_lidar, times_lidar, save_pc=True, save_img=True, save_video=False):
         if save_video:
             all_preds = []
             all_preds_depth = []
@@ -170,15 +170,15 @@ class Simulator(object):
                 #pred_intensity = pred_intensity * mult_laser + add_laser
             #pred_intensity = pred_intensity * raydrop_mask
             #pred_depth = pred_depth * raydrop_mask
-            gt_incidence = cv2.imread(f"{incidence_pat}/{begin_frame + i:010d}_incidence.png", cv2.IMREAD_GRAYSCALE)/255.0
-            gt_intensity = cv2.imread(f"{incidence_pat}/{begin_frame + i:010d}_intensity.png", cv2.IMREAD_GRAYSCALE)/255.0
+            #gt_incidence = cv2.imread(f"{incidence_pat}/{begin_frame + i:010d}_incidence.png", cv2.IMREAD_GRAYSCALE)/255.0
+            #gt_intensity = cv2.imread(f"{incidence_pat}/{begin_frame + i:010d}_intensity.png", cv2.IMREAD_GRAYSCALE)/255.0
             pred_raydrop = pred_raydrop[0].detach().cpu().numpy()
             pred_depth = pred_depth[0].detach().cpu().numpy()
             pred_intensity = pred_intensity[0].detach().cpu().numpy()
             #pred_reflectivity = pred_reflectivity[0].detach().cpu().numpy()
             #show gt incidence
    
-            corrected_intensity = gt_incidence#2*pred_intensity* gt_incidence**2#((10* pred_reflectivity)**2)
+            #corrected_intensity = gt_incidence#2*pred_intensity* gt_incidence**2#((10* pred_reflectivity)**2)
 
             #z_offsets from opt.z_offset and opt.z_offset_bottom
             z_offsets = [self.opt.shift_z_top, self.opt.shift_z_bottom]
@@ -218,11 +218,11 @@ class Simulator(object):
                 #img_intensity[:,:,1] = 0
                 #img_intensity[:,:,0] = 0
 
-                img_intensity_corrected = (corrected_intensity * 255).astype(np.uint8)
+                #img_intensity_corrected = (corrected_intensity * 255).astype(np.uint8)
                 img_gt_intensity = (gt_intensity * 255).astype(np.uint8)
                 gt_intensity = cv2.cvtColor(img_gt_intensity, cv2.COLOR_GRAY2BGR)
                 #make img intensity to be 3 channel and use only red channel
-                img_intensity_corrected = cv2.cvtColor(img_intensity_corrected, cv2.COLOR_GRAY2BGR)
+                #img_intensity_corrected = cv2.cvtColor(img_intensity_corrected, cv2.COLOR_GRAY2BGR)
    
 
 
@@ -246,7 +246,8 @@ class Simulator(object):
                 img_depth = cv2.applyColorMap(img_depth, 20)
 
                 #img_pred = cv2.vconcat([img_raydrop, img_intensity, img_intensity_corrected,gt_rgb, img_depth])
-                img_pred = cv2.vconcat([img_intensity, img_intensity_corrected, gt_intensity, img_depth])
+                #img_pred = cv2.vconcat([img_intensity, img_intensity_corrected, gt_intensity, img_depth])
+                img_pred = cv2.vconcat([img_intensity, gt_intensity, img_depth])
                 cv2.imwrite(save_path, img_pred)
               
             if save_video:
