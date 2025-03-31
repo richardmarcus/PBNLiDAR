@@ -1,8 +1,10 @@
 #! /bin/bash
+
+log_path="/home/oq55olys/Cluster/LiDAR4D/log"
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d_sim.py \
 --config configs/kitti360_1538.txt \
---workspace log/kitti360_lidar4d_f1538_final_no_motion/simulation \
---ckpt log/kitti360_lidar4d_f1538_final_no_motion/checkpoints/strength_ep0334_refine.pth \
+--workspace $log_path/kitti360_lidar4d_f1538_baseline/simulation \
+--ckpt $log_path/kitti360_lidar4d_f1538_baseline/checkpoints/default_ep0500_refine.pth \
 --H_lidar 64 \
 --W_lidar 1024 \
 --shift_x 0.0 \
