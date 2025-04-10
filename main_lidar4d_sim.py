@@ -145,7 +145,7 @@ def _get_camera_rays(sequence_id, opt, device, step=4):
     k3 = KITTI360Loader(kitti_360_root)
 
     # Get camera2world.
-    camera2world_direct, intrinsics, extriniscs = k3.load_cameras(sequence_name, frame_ids)
+    camera2world_direct, intrinsics, extriniscs, rectification = k3.load_cameras(sequence_name, frame_ids)
 
 
     #camera2world_direct = k3.load_lidars(sequence_name, frame_ids)
@@ -345,6 +345,26 @@ def _get_lidar_rays(sequence_id, opt, device, interpolation):
 def main():
     parser = get_arg_parser()
     opt = parser.parse_args()
+
+
+    #last four digits before the .txt of opt.config
+    opt.scene_id = opt.config.split("/")[-1].split(".")[0][-4:]
+
+    
+   
+    print(f"Config file: {opt.config}")
+    print(f"Workspace directory: {opt.workspace}")
+    print(f"Experiment name: {opt.experiment_name}")
+    print(f"Dataset path: {opt.path}")
+    print(f"Using motion correction: {opt.motion}")
+    print(f"Checkpoint: {opt.ckpt}")
+    print(f"Lidar output dimension: {opt.out_lidar_dim}")
+    print(f"List of optimizer params: {opt.opt_params}")
+    print(f"List of learning rate factors: {opt.lr_factors}")
+    print(f"Sequence id: {opt.sequence_id}")
+    print(f"Scene id: {opt.scene_id}")
+    print("----------------------------------------")
+  
     set_seed(opt.seed)
 
     # Logging

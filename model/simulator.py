@@ -131,7 +131,7 @@ class Simulator(object):
 
         cam_path = "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/KITTI-360/data_2d_raw/2013_05_28_drive_0000_sync/image_00/data_rect/"
         incidence_pat = "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/train"
-        begin_frame = 1538
+        begin_frame = int(self.opt.sequence_id)
 
         for i in tqdm.tqdm(range(B)):
             ray_o_lidar = rays_o_lidar[i, ...].unsqueeze(0)
@@ -149,10 +149,10 @@ class Simulator(object):
                     save_pc=save_pc,
                 )
 
-            pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, self.H_lidar, self.W_lidar, 2)
+            pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, self.H_lidar, self.W_lidar, self.opt.out_lidar_dim)
             pred_raydrop = pred_rgb_lidar[:, :, :, 0]
             pred_intensity = pred_rgb_lidar[:, :, :, 1]
-            #pred_reflectivity = pred_rgb_lidar[:, :, :, 2]
+
             pred_depth = outputs_lidar["depth_lidar"].reshape(-1, self.H_lidar, self.W_lidar)
 
 
@@ -175,7 +175,11 @@ class Simulator(object):
             pred_raydrop = pred_raydrop[0].detach().cpu().numpy()
             pred_depth = pred_depth[0].detach().cpu().numpy()
             pred_intensity = pred_intensity[0].detach().cpu().numpy()
-            #pred_reflectivity = pred_reflectivity[0].detach().cpu().numpy()
+            if self.opt.out_lidar_dim == 3:
+                pred_reflectivity = pred_rgb_lidar[:, :, :, 2]
+                pred_reflectivity = pred_reflectivity[0].detach().cpu().numpy()
+                img_reflectivity = (pred_reflectivity * 255).astype(np.uint8)
+                img_reflectivity = cv2.applyColorMap(img_reflectivity, 1)
             #show gt incidence
    
             #corrected_intensity = gt_incidence#2*pred_intensity* gt_incidence**2#((10* pred_reflectivity)**2)
@@ -203,9 +207,11 @@ class Simulator(object):
 
             if save_img:
                 save_path = os.path.join(
-                        self.workspace,
+                        #self.workspace,
+                        "/media/oq55olys/chonk/Datasets/kittilike/KITTI-360/data_reco/",
                         "images",
-                        f"lidar4d_{i:04d}.png",
+                        self.opt.scene_id,
+                        f"lidar4d_{i+int(self.opt.sequence_id):04d}.png",
                     )
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
@@ -219,8 +225,8 @@ class Simulator(object):
                 #img_intensity[:,:,0] = 0
 
                 #img_intensity_corrected = (corrected_intensity * 255).astype(np.uint8)
-                img_gt_intensity = (gt_intensity * 255).astype(np.uint8)
-                gt_intensity = cv2.cvtColor(img_gt_intensity, cv2.COLOR_GRAY2BGR)
+                #img_gt_intensity = (gt_intensity * 255).astype(np.uint8)
+                #gt_intensity = cv2.cvtColor(img_gt_intensity, cv2.COLOR_GRAY2BGR)
                 #make img intensity to be 3 channel and use only red channel
                 #img_intensity_corrected = cv2.cvtColor(img_intensity_corrected, cv2.COLOR_GRAY2BGR)
    
@@ -240,14 +246,18 @@ class Simulator(object):
                         f"lidar4d_{i:04d}.npy",
                     )
                 #save path exists already
-                np.save(save_path_depth, pred_depth)
+                #np.save(save_path_depth, pred_depth)
                 
                 img_depth = (pred_depth * 255).astype(np.uint8)
                 img_depth = cv2.applyColorMap(img_depth, 20)
 
                 #img_pred = cv2.vconcat([img_raydrop, img_intensity, img_intensity_corrected,gt_rgb, img_depth])
                 #img_pred = cv2.vconcat([img_intensity, img_intensity_corrected, gt_intensity, img_depth])
-                img_pred = cv2.vconcat([img_intensity, gt_intensity, img_depth])
+                
+                if self.opt.out_lidar_dim == 3:
+                    img_pred = cv2.vconcat([img_reflectivity, img_intensity, img_depth, img_raydrop, ])
+                else:
+                    img_pred = cv2.vconcat([img_intensity, img_depth, img_raydrop])
                 cv2.imwrite(save_path, img_pred)
               
             if save_video:
@@ -271,7 +281,7 @@ class Simulator(object):
                 macro_block_size=1,
             )
 
-        return pred_lidar
+        return #pred_lidar
 
 
     def load_checkpoint(self, checkpoint=None, model_only=True):
