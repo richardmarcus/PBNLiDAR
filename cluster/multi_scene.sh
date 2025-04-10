@@ -32,16 +32,18 @@ do
   for SEQ_ID in $SEQ_IDs
   do
     echo $SCENE_ID $SEQ_ID
-    #sbatch --job-name=${SEQ_ID}_baseline cluster/cluster_train.sh $SEQ_ID "baseline" $tag "" "" "" 2 0.0
-    #sbatch --job-name=${SEQ_ID}_motion cluster/cluster_train.sh $SEQ_ID "motion" $tag "" "" "True" 2 0.0
-    #sbatch --job-name=${SEQ_ID}_poses cluster/cluster_train.sh $SEQ_ID "poses" $tag "R T" "0.01 0.01" "" 2 0.0 
-    #sbatch --job-name=${SEQ_ID}_laser cluster/cluster_train.sh $SEQ_ID "laser" $tag "laser_strength" "0.1" "" 2 0.0
-    #sbatch --job-name=${SEQ_ID}_reflectance cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.0
-    #sbatch --job-name=${SEQ_ID}_reflectance2 cluster/cluster_train.sh $SEQ_ID "reflectance2" $tag "" "" "" 3 0.2
-    #sbatch --job-name=${SEQ_ID}_imask cluster/cluster_train.sh $SEQ_ID "imask" $tag "" "" "" 2 0.0
-    #sbatch --job-name=${SEQ_ID}_distance cluster/cluster_train.sh $SEQ_ID "distance" $tag "near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.05 0.05 0.01 0.1 0.1" "" 2 0.0
-    #sbatch --job-name=${SEQ_ID}_reflectance_nmask cluster/cluster_train.sh $SEQ_ID "reflectance_nmask" $tag "" "" "" 3 0.2
-    sbatch --job-name=${SCENE_ID}_${SEQ_ID}_combined_imask_nmask2 cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask_2" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.2 $SCENE_ID
-    sbatch --job-name=${SCENE_ID}_${SEQ_ID}_combined_imask_nmask0 cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask_0" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_baseline0000 cluster/cluster_train.sh $SEQ_ID "baseline" $tag "" "" "" 2 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_motion cluster/cluster_train.sh $SEQ_ID "motion" $tag "" "" "True" 2 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_poses cluster/cluster_train.sh $SEQ_ID "poses_no_motion" $tag "R T" "0.01 0.01" "" 2 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_poses_motion cluster/cluster_train.sh $SEQ_ID "poses_motion" $tag "R T" "0.01 0.01" "True" 2 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_laser cluster/cluster_train.sh $SEQ_ID "laser" $tag "laser_strength" "0.1" "" 2 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_reflectance cluster/cluster_train.sh $SEQ_ID "reflectance" $tag "" "" "" 3 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_reflectance2 cluster/cluster_train.sh $SEQ_ID "reflectance2" $tag "" "" "" 3 0.2 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_imask cluster/cluster_train.sh $SEQ_ID "imask" $tag "" "" "" 2 0.0 $SCENE_ID
+    #sbatch --job-name=${SEQ_ID}_distance cluster/cluster_train.sh $SEQ_ID "distance" $tag "near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.05 0.05 0.01 0.1 0.1" "" 2 0.0 $SCENE_ID
+    sbatch --job-name=${SEQ_ID}_reflectance_nmask cluster/cluster_train.sh $SEQ_ID "reflectance_nmask" $tag "" "" "" 3 0.0 $SCENE_ID
+    sbatch --job-name=${SEQ_ID}_reflectance2_nmask cluster/cluster_train.sh $SEQ_ID "reflectance2_nmask" $tag "" "" "" 3 0.2 $SCENE_ID
+    #sbatch --job-name=${SCENE_ID}_${SEQ_ID}_combined_imask_nmask2 cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask_2" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.2 $SCENE_ID
+    #sbatch --job-name=${SCENE_ID}_${SEQ_ID}_combined_imask_nmask0 cluster/cluster_train.sh $SEQ_ID "combined_imask_nmask_0" $tag "laser_strength near_range_threshold near_range_factor distance_scale near_offset distance_fall" "0.1 0.05 0.05 0.005 0.1 0.1" "True" 3 0.0 $SCENE_ID
   done
 done
