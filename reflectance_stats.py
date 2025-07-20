@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-path= "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/train"
+path= "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/train_0000"
 
 
 files = os.listdir(path)
@@ -43,7 +43,8 @@ def plot_intensity_for_distance_for_incidences(bucket_size=0.1, bin_size=4):
         
 
         # Flatten the arrays and filter based on conditions
-        valid_indices = (distances.flatten() <= 80) & (intensities.flatten() < 0.9) & (incidences.flatten() > 0) 
+        valid_indices = (distances.flatten() <= 80) & (intensities.flatten() <= 2) & (incidences.flatten() > 0) & (incidences.flatten() < .99)
+        
         
         valid_distances = distances.flatten()[valid_indices]
         valid_incidences = incidence_buckets.flatten()[valid_indices]
@@ -100,31 +101,44 @@ def plot_intensity_for_distance_for_incidences(bucket_size=0.1, bin_size=4):
         valid_bins = bin_counts > 0
         mean_intensities = mean_intensities[valid_bins]
         distance_bin_centers = distance_bin_centers[valid_bins]
-        
+
         #compute greyscale based on k and num_buckets
         greyscale = k/num_buckets
+        print(k, num_buckets)
 
         # Plot mean intensities vs distance bin centers
-        #use coolwarm
-        plt.plot(distance_bin_centers, mean_intensities, 'o-', markersize=5, color=plt.cm.coolwarm(greyscale))
-    plt.xlabel("Distance")
+        #use viridis colormap
+        plt.plot(distance_bin_centers, mean_intensities, 'o-', markersize=5, color=plt.cm.viridis(greyscale))
+        k+=1
+
+
+    plt.xlabel("Distance (m)")
     plt.ylabel("Mean Intensity")
     plt.ylim([0, 0.5])
+
+    #plot colorbar
+    ax = plt.gca() # Get current axes
+    sm = plt.cm.ScalarMappable(cmap=plt.cm.viridis, norm=plt.Normalize(vmin=0, vmax=(num_buckets-1)*bucket_size))
+    sm.set_array([]) # You need this line for the colorbar to work with line plots
+    cbar = plt.colorbar(sm, ax=ax) # Pass the axes to the colorbar
+    cbar.set_label(r'cos($\phi$)')
+
+    if False:
     
-    #plot y=0.07x for comparison in green
-    x = np.arange(0, 80, 0.1)
-    y = 0.026*x+0.46
-    plt.plot(x, y/2.2, 'o-', markersize=5, color='green')
-    y2 = (0.032*(x))**(0.35)
-    plt.plot(x, y2/2, 'o-', markersize=5, color='red')
-    y3 = 1 - np.exp(-0.026*((x+1.5)**2))
-    plt.plot(x, y3/2.7, 'o-', markersize=5, color='orange')
+        #plot y=0.07x for comparison in green
+        x = np.arange(0, 80, 0.1)
+        y = 0.026*x+0.46
+        plt.plot(x, y/2.2, 'o-', markersize=5, color='green')
+        y2 = (0.032*(x))**(0.35)
+        plt.plot(x, y2/2, 'o-', markersize=5, color='red')
+        y3 = 1 - np.exp(-0.026*((x+1.5)**2))
+        plt.plot(x, y3/2.7, 'o-', markersize=5, color='orange')
 
     #add legend
     #plt.legend([f"Incidence: {i * bucket_size:.1f}" for i in range(num_buckets)])
   
     fig = plt.gcf()
-    fig.set_size_inches(16, 4)
+    #fig.set_size_inches(16, 4)
     plt.savefig("intensity_plots/intensity_stats_per_incidence.png")
 
         #plt.clf()
@@ -154,7 +168,7 @@ def plot_intensity_for_incidence_for_distances(bucket_size=4, bin_size=0.1):
         
 
         # Flatten the arrays and filter based on conditions
-        valid_indices = (distances.flatten() <= 80) & (intensities.flatten() <= 1) & (incidences.flatten() > 0) & (incidences.flatten() < .99)
+        valid_indices = (distances.flatten() <= 80) & (intensities.flatten() <= 2) & (incidences.flatten() > 0)  & (incidences.flatten() < .99)
         
         valid_distances = distance_buckets.flatten()[valid_indices]
         valid_intensities = intensities.flatten()[valid_indices]
@@ -226,13 +240,24 @@ def plot_intensity_for_incidence_for_distances(bucket_size=4, bin_size=0.1):
         # Plot mean intensities vs incidence bin centers
         #use coolwarm
         plt.plot(incidence_bin_centers, mean_intensities, 'o-', markersize=5, color=plt.cm.coolwarm(greyscale))
-        plt.xlabel("cos(Incidence)")
+        plt.xlabel(r"cos($\phi$)")
         plt.ylabel("Mean Intensity")
         plt.ylim([0, .5])
         #add legend
+        #plt.legend([f"Distance: {i * bucket_size:.1f}" for i in range(num_buckets)]) # Removed legend
         k+=1
 
-        
+
+
+        # Add colorbar after the loop
+    ax = plt.gca() # Get current axes
+    sm = plt.cm.ScalarMappable(cmap=plt.cm.coolwarm, norm=plt.Normalize(vmin=0, vmax=(num_buckets-1)*bucket_size))
+    sm.set_array([]) # You need this line for the colorbar to work with line plots
+    cbar = plt.colorbar(sm, ax=ax) # Pass the axes to the colorbar
+    cbar.set_label('Distance (m)')
+
+
+
     #plot cos(incidence) for comparison
     #incidences = np.arange(0.1, 1, 0.1)
     #cos_incidence = (incidences)**0.1
@@ -240,6 +265,11 @@ def plot_intensity_for_incidence_for_distances(bucket_size=4, bin_size=0.1):
     plt.savefig("intensity_plots/intensity_stats_per_distance.png")
 
         #plt.clf()
-
-#plot_intensity_for_distance_for_incidences(bucket_size = 5, bin_size =0.005)
-plot_intensity_for_incidence_for_distances(bucket_size = 4, bin_size = 0.08)
+plt.rcParams.update({'font.size': 18})
+plt.rcParams['xtick.labelsize'] = 16
+plt.rcParams['ytick.labelsize'] = 16
+plt.rcParams['axes.titlepad'] = 1 # Add this line
+plt.rcParams['axes.labelpad'] = 1 # Add this line
+    
+#plot_intensity_for_distance_for_incidences(bucket_size = 0.1, bin_size =3)
+plot_intensity_for_incidence_for_distances(bucket_size = 4, bin_size = 0.04)

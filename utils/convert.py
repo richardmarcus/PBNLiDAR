@@ -423,7 +423,7 @@ def lidar_to_pano(
     return pano
 
 
-def pano_to_lidar_with_intensities(pano: np.ndarray, intensities, lidar_K, z_offsets, laser_offsets=0):
+def pano_to_lidar_with_intensities(pano: np.ndarray, intensities, lidar_K, z_offsets, laser_offsets=0, filter=True):
     """
     Args:
         pano: (H, W), float32.
@@ -450,9 +450,9 @@ def pano_to_lidar_with_intensities(pano: np.ndarray, intensities, lidar_K, z_off
     )
 
 
- 
-
     beta = -(i ) / (W) * 2 * np.pi + np.pi
+
+    #print(laser_offsets.shape, j.shape)
 
 
     alpha = (fov_up - laser_offsets[j.astype(int)] - j / H * fov) / 180 * np.pi
@@ -507,11 +507,14 @@ def pano_to_lidar_with_intensities(pano: np.ndarray, intensities, lidar_K, z_off
     
    
     # Filter empty points.
-    idx = np.where(pano != 0.0)
-    local_points_with_intensities = local_points_with_intensities[idx]
-    #flatten
-    #local_points_with_intensities = local_points_with_intensities.reshape(-1, 4)
-    #print(local_points_with_intensities.shape)
+    if filter:
+        idx = np.where(pano != 0.0)
+        local_points_with_intensities = local_points_with_intensities[idx]
+      
+    else:
+
+        local_points_with_intensities = local_points_with_intensities.reshape(-1, 4)
+
 
     return local_points_with_intensities
 

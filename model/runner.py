@@ -48,6 +48,13 @@ def get_mask_from_depth(gt_depth):
     return dropmask
 
 
+def incidence_falloff_nontorch(pred_intensity, pred_reflectance, gt_incidence):
+
+    epsilon = 0.02
+    gt_incidence = np.clip(gt_incidence, epsilon, 1)
+
+    reflectance=(gt_incidence)**((pred_reflectance*reflectance_scale)**specular_power)#+ pred_specular* 
+    return pred_intensity * reflectance
 
 def incidence_falloff(pred_intensity, pred_reflectance, gt_incidence):
     #return pred_intensity * (1-pred_specular)*gt_incidence**((pred_reflectance)**2)+ pred_specular* gt_incidence**((1+pred_highlight*99)**3)
@@ -69,8 +76,9 @@ def distance_falloff(distances: torch.Tensor, falloff_threshold: float = 0.0, fa
     distance_fall = max(distance_fall, 1)
 
 
+    regularizer = distance_fall
 
-    return  ((scale*(distances - falloff_threshold)+1)**-(falloff_factor/distance_fall)) * distance_fall - (distance_fall-1)
+    return  ((scale*(distances - falloff_threshold)+1)**-(falloff_factor/regularizer)) * distance_fall - (distance_fall-1)
 
 
 def linear_near_range_effect(distances: torch.Tensor, near_range_factor: float = 0.02, near_offset = 0) -> torch.Tensor:
@@ -84,7 +92,7 @@ def exponential_near_range_effect(distances: torch.Tensor, near_range_factor: fl
 def near_range_effect(distances: torch.Tensor, near_range_factor: float = 0.02, near_offset = 0) -> torch.Tensor:
 
     near_offset = max(near_offset, 0.1)
-    return torch.clamp((distances**(1/near_offset))*near_range_factor,0,1)
+    return torch.clamp((distances**(1/near_offset))*near_range_factor,0,111)
 
 
 def switch_near_range_effect(distances: torch.Tensor, fall_offs: torch.Tensor, near_range_effects: torch.Tensor, near_range_threshold: float, steepness: float = 20.0) -> torch.Tensor:
@@ -112,7 +120,7 @@ def distance_normalization(distances: torch.Tensor, falloff_factor: float = 2.0,
     return switch_far_range_effect(distances, switch_near_range_effect(distances, depth_falloff, near_range, near_range_threshold, steepness))
    
 
-def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012, scale=0.012, near_offset = 0, distance_fall = 1.0):
+def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012, scale=0.012, near_offset = 0, distance_fall = 1.0, file_id = ""):
 
     print("Plotting distance normalization")
     print("Near range threshold:", near_range_threshold)
@@ -121,9 +129,10 @@ def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012,
     print("Near offset:", near_offset)
     print("Distance fall:", distance_fall)
     #take distances from 0 to 80 meters
-    distances = torch.linspace(-0.1, 100, 1000).to("cuda")
+    distances = torch.linspace(-5, 100, 1000).to("cuda")
     base_intensities = torch.ones_like(distances).to("cuda")
 
+    #use 
  
     near_intensities = base_intensities* near_range_effect(distances, near_range_factor=near_range_factor,near_offset=near_offset)
 
@@ -141,19 +150,37 @@ def plot_distance_normalization(near_range_threshold=20,near_range_factor=0.012,
     fars = 50*(1/distances)**2
 
     #make figure 4x wide
-    plt.figure(figsize=(16, 4))
+    #plt.figure(figsize=(16, 4))
     #plot distance vs intensity
-    plt.plot(distances, intensities)
-    plt.plot(distances, simple_intensities)
-    plt.plot(distances, near_intensities)
-    plt.plot(distances, fars)
-    plt.xlabel('Distance (m)')
-    plt.ylabel('Intensity')
+    plt.plot(distances, intensities, linewidth=2)
+    plt.plot(distances, simple_intensities, linestyle='--', linewidth=0.8)
+    plt.plot(distances, near_intensities, linestyle='--', linewidth=0.8)
+    #plt.plot(distances, fars)
+    plt.xlabel('Distance (m)', fontsize=22)
+    plt.ylabel('Intensity', fontsize=22)
     plt.title('Distance Normalization')
     #from 0 to 80 meters
-    plt.xlim(-0.1, 100)
-    plt.ylim(-0.2, 1.2)
-    plt.savefig("plots/distance_normalization.png")
+    plt.xlim(-0, 80)
+    plt.ylim(-0, 1.2)
+    #ticks to fontsize 16
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    # Adjust bottom margin to prevent label cutoff
+    plt.tight_layout()
+
+    # Keep original ticks but show only every second label
+    #current_xticks = plt.gca().get_xticks()
+    #current_yticks = plt.gca().get_yticks()
+    #plt.gca().set_xticklabels([f'{int(x)}' if i%2==0 else '' for i,x in enumerate(current_xticks)])
+    #plt.gca().set_yticklabels([f'{y:.1f}' if i%2==0 else '' for i,y in enumerate(current_yticks)])
+
+
+    # Add grid lines
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5) # Add this line
+    plt.savefig("plots/distance/normalization"+file_id+".png")
+    print("Saved to plots/distance/normalization"+file_id+".png")
+
+
 
 
 
@@ -403,10 +430,46 @@ def plot_velocity(data, scale):
 
 def plot_laser_offset(fov, z_offsets, alpha_offset):
     import matplotlib.pyplot as plt
-
+    color1 = '#3498db'  # Bright blue
+    color2 = '#f39c12'  # Orange/amber
 
     num_lines = len(alpha_offset) 
     padded_alpha_offset = list(alpha_offset)
+
+    #plot the alpha offsets vs ray index
+    ray_indices = np.arange(num_lines)
+
+    # Create a figure and axis
+    plt.figure(figsize=(10, 6))
+    
+    # Split the data into first and second half
+    half_num_lines = num_lines // 2
+    
+    # Plot first half in one color and second half in another color
+    # Transposed: x-axis is now ray indices, y-axis is alpha offset
+    plt.plot(ray_indices[:half_num_lines], padded_alpha_offset[:half_num_lines], 
+             marker='o', linestyle='-', color=color1, label='Upper FOV')
+    plt.plot(ray_indices[half_num_lines:], padded_alpha_offset[half_num_lines:], 
+             marker='o', linestyle='-', color=color2, label='Lower FOV')
+    # Add legend
+    plt.legend()
+    #make legend a lot bigger
+    plt.legend(fontsize=26, loc='lower left')
+
+    plt.ylabel('FOV offset (in degrees)', fontsize=30)
+    plt.xlabel('Ray Index', fontsize=30)
+
+    #make ticks 16 fontsize
+    plt.xticks(fontsize=22)
+    plt.yticks(fontsize=22)
+
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("plots/alpha_offsets2.png")
+    print("Saved to plots/alpha_offsets2.png")
+
+
+    
 
     # Split lines into two halves
     half_num_lines = num_lines // 2
@@ -440,11 +503,12 @@ def plot_laser_offset(fov, z_offsets, alpha_offset):
     x_second_half = np.cos(angles_second_half)
     y_second_half = np.sin(angles_second_half)
 
+    length = 80
     #use length 10
-    x_first_half *= 10
-    y_first_half *= 10
-    x_second_half *= 10
-    y_second_half *= 10
+    x_first_half *= length
+    y_first_half *= length
+    x_second_half *= length
+    y_second_half *= length
 
     up_shift = -z_offsets[0]
     down_shift = -z_offsets[1]
@@ -452,18 +516,41 @@ def plot_laser_offset(fov, z_offsets, alpha_offset):
     #add z_offsets to y coordinates
     y_first_half += up_shift
     y_second_half += down_shift
+    
 
     
     for i in range(half_num_lines):
-        plt.plot([0, x_first_half[i]], [up_shift, y_first_half[i]], color='b')
-        plt.plot([0, x_second_half[i]], [down_shift, y_second_half[i]], color='r')
+        plt.plot([0, x_first_half[i]], [up_shift, y_first_half[i]], color=color1)
+        plt.plot([0, x_second_half[i]], [down_shift, y_second_half[i]], color=color2)
+
+    #draw ground plane at -1.73m
+    plt.axhline(y=-1.73, color='k', linestyle='--', label='Ground Plane')
+
+    #make area below ground plane more transparent
+    plt.fill_betweenx(y_first_half, -length, length, where=(y_first_half < -1.73), color='gray', alpha=0.3)
 
    
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Laser Offsets')
+    plt.xlabel('Distance (m)', fontsize=16)
+    plt.ylabel('Height (m)', fontsize=16)
+    #plt.title('Laser Offsets')
+
+    #xlim at 8 and y lim and -2
+    plt.xlim(-0.1, 8)
+    plt.ylim(-2, 0.7)
+
+    #ground plane legend is no longer visible
+    plt.legend(loc='lower left', fontsize=14, frameon=True)
+
+
+    #grids
+    plt.grid(True)
+    plt.tight_layout()
     #write file and close
-    plt.savefig("plots/laser_offsets.png")
+    plt.savefig("plots/laser_offsets3.png")
+
+    print("Saved to plots/laser_offsets3.png")
+
+    return
 
 
     # Second plot: Y-axis represents indices, X-axis represents offsets
@@ -497,7 +584,112 @@ def plot_laser_offset(fov, z_offsets, alpha_offset):
     plt.grid(True)
     plt.savefig("plots/alpha_offsets.png")
 
+
     plt.close()
+
+def plot_laser_strength_multi(data1, data2, name1, name2, smoothing_window=7):
+    x_values = range(64)  # Ray indices [0, 1, ..., 63]
+    
+    # Plot the data
+    y_values1 = data1.squeeze() if hasattr(data1, 'squeeze') else data1
+    y_values2 = data2.squeeze() if hasattr(data2, 'squeeze') else data2
+
+    # Ensure y_values are 1D arrays for convolution
+    if hasattr(y_values1, 'shape') and len(y_values1.shape) > 1:
+        y_values1 = y_values1.flatten()
+    if hasattr(y_values2, 'shape') and len(y_values2.shape) > 1:
+        y_values2 = y_values2.flatten()
+
+    # Initialize arrays to store smoothed values
+    smoothed_y_values1 = np.zeros_like(y_values1)
+    smoothed_y_values2 = np.zeros_like(y_values2)
+    
+    # Apply full smoothing in the middle, gradually reduce window size at borders
+    for i in range(len(y_values1)):
+        # Calculate dynamic window size based on position
+        if i < smoothing_window//2:
+            # At left border, window size increases with i
+            window_size = 2 * i + 1
+        elif i >= len(y_values1) - smoothing_window//2:
+            # At right border, window size decreases with i
+            window_size = 2 * (len(y_values1) - i - 1) + 1
+        else:
+            # In the middle, use full window size
+            window_size = smoothing_window
+        
+        # Ensure window_size is at least 1
+        window_size = max(1, window_size)
+        
+        # Calculate bounds for the current window
+        start = max(0, i - window_size//2)
+        end = min(len(y_values1), i + window_size//2 + 1)
+        
+        # Apply smoothing with current window size
+        smoothed_y_values1[i] = np.mean(y_values1[start:end])
+        smoothed_y_values2[i] = np.mean(y_values2[start:end])
+    
+    # Use all x values since we're calculating smoothed values for the entire range
+    valid_x_values = x_values
+    
+    # Create figure with appropriate size
+    plt.figure(figsize=(12, 6))
+    
+    # Use light colors with greater contrast
+    color2 = '#1abc9c'  # Light teal
+    color1 = '#e74c3c'  # Light red/coral
+    
+    # Plot scatter points
+    plt.scatter(x_values, y_values1, marker='o', color=color1, alpha=0.9, label=name1, s=55)
+    plt.scatter(x_values, y_values2, marker='s', color=color2, alpha=0.9, label=name2, s=55)
+    
+    # Add connecting lines
+    plt.plot(x_values, y_values1, color=color1, linestyle='-', alpha=0.3, linewidth=4)
+    plt.plot(x_values, y_values2, color=color2, linestyle='-', alpha=0.3, linewidth=4)
+    
+    # Plot the lines for smoothed data with the same colors
+    plt.plot(valid_x_values, smoothed_y_values1, color=color1, linewidth=2)
+    plt.plot(valid_x_values, smoothed_y_values2, color=color2, linewidth=2 )
+
+    # Add grid for better readability
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    # Add legend
+    plt.legend()
+    #prefer lower left for legend
+    plt.legend(loc='lower left', fontsize=21, frameon=True)
+
+    #incrase font size for numbers
+    plt.tick_params(axis='both', which='major', labelsize=16)
+
+    #label size increase
+    plt.xlabel('Ray Index', fontsize=24)
+    plt.ylabel('Laser Strength', fontsize=24)
+
+    # Write to file
+    plt.xlabel('Row Index (top to bottom)')
+    plt.ylabel('Laser Strength')
+    #plt.title('Laser Strength Comparison')
+
+    #ticks bigger
+    plt.xticks(fontsize=18)
+    plt.yticks(fontsize=18)
+
+    # Set ylim from 0.5 to 1.01
+    plt.ylim(0.5, 1.01)
+    
+    # Make folder if not exist
+    os.makedirs("raystrength", exist_ok=True)
+
+    # Save to file
+    plt.savefig("raystrength/laser_strength_multi2.png", dpi=300, bbox_inches='tight')
+    print("Saved to raystrength/laser_strength_multi2.png")
+    
+    # Clear the plot
+    plt.clf()
+    plt.close()
+
+
+
 
 def plot_all(data, channel, smoothing_window=5, descriptor_offset = 0):
     x_values = range(64)  # Ray indices [0, 1, ..., 63]
@@ -862,15 +1054,23 @@ class Trainer(object):
         self.log_ptr = None
         if self.workspace is not None:
             os.makedirs(self.workspace, exist_ok=True)
-            self.log_path = os.path.join(workspace, f"log_{self.name}.txt")
+            #self.log_path = os.path.join(workspace, f"debuglog_{self.name}.txt")
+            workspace_suffix = self.workspace.split("/")[-1]
+            ext_workspace = os.path.join("/home/oq55olys/Projects/neural_rendering/LiDAR4D/combined_log/", workspace_suffix)
+            self.ext_workspace = ext_workspace
+            os.makedirs(ext_workspace, exist_ok=True)
+            self.log_path = os.path.join(ext_workspace, f"debuglog_{self.name}.txt")
             self.log_ptr = open(self.log_path, "a+")
 
             self.ckpt_path = os.path.join(self.workspace, "checkpoints")
+            self.ckpt_path_ext = os.path.join(ext_workspace, "checkpoints")
             self.best_path = f"{self.ckpt_path}/{self.name}.pth"
             os.makedirs(self.ckpt_path, exist_ok=True)
+            os.makedirs(self.ckpt_path_ext, exist_ok=True)
 
         self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {"fp16" if self.fp16 else "fp32"} | {self.workspace}')
         self.log(f"[INFO] #parameters: {sum([p.numel() for p in model.parameters() if p.requires_grad])}")
+
 
         if self.workspace is not None:
             if self.use_checkpoint == "lidar":
@@ -1523,8 +1723,12 @@ class Trainer(object):
             print("saved intensity mask to tmp/intensity_mask.png")
         
         gt_intensity = images_lidar[:, :, :, 1] * gt_raydrop 
+        #also during eval
         if self.opt.use_imask:
             gt_intensity*= intensity_mask
+
+        
+
         gt_depth = images_lidar[:, :, :, 2] 
         dropmask = get_mask_from_depth(gt_depth)
 
@@ -1583,6 +1787,9 @@ class Trainer(object):
 
 
         corrected_intensity = torch.clamp(corrected_intensity, 0, 1) * loss_mask
+        
+        if self.opt.use_imask:
+            corrected_intensity *= intensity_mask
 
         lidar_loss = (
             self.opt.alpha_d * self.criterion["depth"](pred_depth * loss_mask, gt_depth).mean()
@@ -1613,6 +1820,7 @@ class Trainer(object):
         pred_raydrop = None
         pred_intensity = None
         pred_depth = None
+        pred_reflectance = None
 
         rays_o_lidar = data["rays_o_lidar"]  # [B, N, 3]
 
@@ -1621,7 +1829,7 @@ class Trainer(object):
         H_lidar, W_lidar = data["H_lidar"], data["W_lidar"]
 
 
-        motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+        motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar, motion= self.opt.motion)
         
         outputs_lidar = self.model.render(
             rays_o_lidar + motion_offset,
@@ -1631,12 +1839,16 @@ class Trainer(object):
             perturb=perturb,
             **vars(self.opt),
         )
-
-        pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, 2)
+        
+        pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(-1, H_lidar, W_lidar, self.opt.out_lidar_dim)
         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
         pred_intensity = pred_rgb_lidar[:, :, :, 1]
         pred_depth = outputs_lidar["depth_lidar"].reshape(-1, H_lidar, W_lidar)
         mult_laser = optimized_laserstrength.reshape(-1, H_lidar, W_lidar)
+        if self.opt.out_lidar_dim > 2:
+            pred_reflectance = pred_rgb_lidar[:, :, :, 2]
+        else:
+            pred_reflectance = torch.zeros_like(pred_intensity)
 
 
         if self.opt.raydrop_loss == 'bce':
@@ -1645,11 +1857,12 @@ class Trainer(object):
             pred_raydrop = torch.cat([pred_raydrop, pred_intensity, pred_depth], dim=0).unsqueeze(0)
             pred_raydrop = self.model.unet(pred_raydrop).squeeze(0)
         raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
-        if self.opt.alpha_r > 0:
-            pred_intensity = (pred_intensity * mult_laser)  * raydrop_mask 
-            pred_depth = pred_depth * raydrop_mask
+        #if self.opt.alpha_r > 0:
+            #pred_intensity = (pred_intensity * mult_laser)  * raydrop_mask 
+            #pred_depth = pred_depth * raydrop_mask
 
-        return pred_raydrop, pred_intensity, pred_depth
+
+        return pred_raydrop, pred_intensity, pred_depth, pred_reflectance, mult_laser, distance_normalization(pred_depth/self.opt.scale, near_range_threshold=self.opt.near_range_threshold, near_range_factor=self.opt.near_range_factor, scale=self.opt.distance_scale, near_offset=self.opt.near_offset, distance_fall=self.opt.distance_fall)
 
     ### ------------------------------
 
@@ -1662,6 +1875,7 @@ class Trainer(object):
         self.log(f"fov_lidar: {self.opt.fov_lidar.detach().cpu().numpy()}")
         self.log(f"z_offsets: {self.opt.z_offsets.detach().cpu().numpy()}")
 
+
         #if self.opt.laser_strength.grad is not None:
             #print("mean grad", self.opt.laser_strength.grad.mean().item())
             #for i in range(self.opt.laser_strength.shape[1]):
@@ -1672,7 +1886,7 @@ class Trainer(object):
 
 
 
-        #plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall)
+        #plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall,
 
         #plot_laser_offset(self.opt.fov_lidar.detach().cpu().numpy(), self.opt.z_offsets.detach().cpu().numpy(), self.opt.laser_offsets.detach().cpu().numpy())
 
@@ -1748,7 +1962,6 @@ class Trainer(object):
             self.global_step += 1
 
 
-       
 
             self.optimizer.zero_grad()
 
@@ -1762,9 +1975,7 @@ class Trainer(object):
                 ) = self.train_step(data)
 
            
-
             #print(average intensity and max intensity)
-
 
             self.scaler.scale(loss).backward()
 
@@ -1802,8 +2013,6 @@ class Trainer(object):
         average_loss = total_loss / self.local_step
         self.stats["loss"].append(average_loss)
         self.log(f"average_loss: {average_loss}.")
-
-
 
         if not self.scheduler_update_every_step:
             if isinstance(
@@ -1875,7 +2084,7 @@ class Trainer(object):
                         metric.update(preds_depth*dropmask, gt_depth)
 
                 save_path_pred = os.path.join(
-                    self.workspace,
+                    self.ext_workspace,
                     "validation",
                     f"{name}_{self.local_step:04d}.png",
                 )
@@ -2109,7 +2318,7 @@ class Trainer(object):
         with torch.no_grad():
             for i, data in enumerate(loader):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    preds_raydrop, preds_intensity, preds_depth = self.test_step(data)
+                    preds_raydrop, preds_intensity, preds_depth, preds_reflectance, mult_laser, pred_dnorm =  self.test_step(data)
 
                 pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
                 pred_raydrop = (np.where(pred_raydrop > 0.5, 1.0, 0.0)).reshape(
@@ -2117,46 +2326,65 @@ class Trainer(object):
                 )
                 pred_raydrop = (pred_raydrop * 255).astype(np.uint8)
 
-                pred_intensity = preds_intensity[0].detach().cpu().numpy()
-                pred_intensity = (pred_intensity * 255).astype(np.uint8)
+                preds_intensity = preds_intensity[0].detach().cpu().numpy()
+                preds_depth = preds_depth[0].detach().cpu().numpy()
+                preds_reflectance = preds_reflectance[0].detach().cpu().numpy()
+                mult_laser = mult_laser[0].detach().cpu().numpy()
+                pred_dnorm = pred_dnorm[0].detach().cpu().numpy()
+                if False:
+                    pred_intensity = (pred_intensity * 255).astype(np.uint8)
 
-                pred_depth = preds_depth[0].detach().cpu().numpy()
+                    pred_depth = preds_depth[0].detach().cpu().numpy()
 
 
-                lidar_K = loader._data.intrinsics_lidar.cpu().detach().numpy()
-                z_offsets = self.opt.z_offsets.cpu().detach().numpy()
-                laser_offsets = self.opt.laser_offsets.cpu().detach().numpy()
+                    lidar_K = loader._data.intrinsics_lidar.cpu().detach().numpy()
+                    z_offsets = self.opt.z_offsets.cpu().detach().numpy()
+                    laser_offsets = self.opt.laser_offsets.cpu().detach().numpy()
 
+        
+                    pred_lidar = pano_to_lidar(
+                        pred_depth / self.opt.scale, lidar_K, z_offsets, laser_offsets
+                    )
 
-                pred_lidar = pano_to_lidar(
-                    pred_depth / self.opt.scale, lidar_K, z_offsets, laser_offsets
-                )
+                    np.save(
+                        os.path.join(save_path, f"test_{name}_{i+1:04d}_depth_lidar.npy"),
+                        pred_lidar,
+                    )
 
-                np.save(
-                    os.path.join(save_path, f"test_{name}_{i+1:04d}_depth_lidar.npy"),
-                    pred_lidar,
-                )
+                    pred_depth = (pred_depth * 255).astype(np.uint8)
 
-                pred_depth = (pred_depth * 255).astype(np.uint8)
+                    if write_video:
+                        all_preds.append(cv2.cvtColor(cv2.applyColorMap(pred_intensity, 1), cv2.COLOR_BGR2RGB))
+                        all_preds_depth.append(cv2.cvtColor(cv2.applyColorMap(pred_depth, 20), cv2.COLOR_BGR2RGB))
+                    else:
+                        cv2.imwrite(
+                            os.path.join(save_path, f"test_{name}_{i+1:04d}_raydrop.png"),
+                            pred_raydrop,
+                        )
+                        cv2.imwrite(
+                            os.path.join(
+                                save_path, f"test_{name}_{i+1:04d}_intensity.png"
+                            ),
+                            cv2.applyColorMap(pred_intensity, 1),
+                        )
+                        cv2.imwrite(
+                            os.path.join(save_path, f"test_{name}_{i+1:04d}_depth.png"),
+                            cv2.applyColorMap(pred_depth, 20),
+                        )
 
-                if write_video:
-                    all_preds.append(cv2.cvtColor(cv2.applyColorMap(pred_intensity, 1), cv2.COLOR_BGR2RGB))
-                    all_preds_depth.append(cv2.cvtColor(cv2.applyColorMap(pred_depth, 20), cv2.COLOR_BGR2RGB))
                 else:
-                    cv2.imwrite(
-                        os.path.join(save_path, f"test_{name}_{i+1:04d}_raydrop.png"),
-                        pred_raydrop,
-                    )
-                    cv2.imwrite(
-                        os.path.join(
-                            save_path, f"test_{name}_{i+1:04d}_intensity.png"
-                        ),
-                        cv2.applyColorMap(pred_intensity, 1),
-                    )
-                    cv2.imwrite(
-                        os.path.join(save_path, f"test_{name}_{i+1:04d}_depth.png"),
-                        cv2.applyColorMap(pred_depth, 20),
-                    )
+                #
+                    #write out pred_intensity as npy arrary keep the float values
+                    #stack preds
+                    stack = np.stack([preds_intensity, preds_depth, preds_reflectance, mult_laser, pred_dnorm], axis=0)
+                    npy_path = os.path.join(save_path, f"test_{name}_{i+1:04d}.npy")
+                    np.save(npy_path, stack)
+                    intensity_img = (preds_intensity * 255).astype(np.uint8)
+                    intensity_img = cv2.applyColorMap(intensity_img, 1)
+                    #write with cv2
+                    cv2.imwrite(os.path.join(save_path, f"test_{name}_{i+1:04d}_intensity.png"), intensity_img)
+                    print("saved intensity image to", os.path.join(save_path, f"test_{name}_{i+1:04d}_intensity.png"))
+                    exit()
 
                 pbar.update(loader.batch_size)
 
@@ -2253,7 +2481,7 @@ class Trainer(object):
         if only_refine:
             if "refine" in self.checkpoint:
                 print("refine already done")
-                exit()
+                #exit()
 
         if self.ema is not None:
             self.ema.copy_to() # load ema model weights
@@ -2285,7 +2513,7 @@ class Trainer(object):
             rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
 
 
-            motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar)
+            motion_offset, motion_rotation, optimized_laserstrength, base_mask, lidar_base_mask = self.load_sensor_settings(data, rays_o_lidar, rays_d_lidar, motion=self.opt.motion)
 
         
             time_lidar = data['time']
@@ -2393,7 +2621,7 @@ class Trainer(object):
             state[param] = getattr(self.opt, param).clone().cpu()
             print("save after refining", param)
 
-        file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}_refine.pth"
+        file_path = f"{self.ckpt_path_ext}/{self.name}_ep{self.epoch:04d}_refine.pth"
         torch.save(state, file_path)
 
 
@@ -2504,6 +2732,17 @@ class Trainer(object):
                     f"[WARN] no evaluated results found, skip saving best checkpoint."
                 )
 
+    def plot_checkpoint(self, checkpoint=None):
+        print(self.opt.laser_strength)
+        #make plot_dir
+        plot_dir = os.path.join(self.workspace, "plot")
+        if not os.path.exists(plot_dir):
+            os.makedirs(plot_dir)
+        laser_strengths = self.opt.laser_strength.clone().detach().cpu().numpy()
+        #save array
+        np.save(os.path.join(plot_dir, "laser_strength.npy"), laser_strengths)
+
+
     def load_checkpoint(self, checkpoint=None, model_only=False, lidar_only=False):
         if checkpoint is None:
             checkpoint_list = sorted(glob.glob(f"{self.ckpt_path}/{self.name}_ep*.pth"))
@@ -2513,7 +2752,7 @@ class Trainer(object):
             else:
                 self.log("[WARN] No checkpoint found, model randomly initialized.")
                 return
-
+        
         checkpoint_dict = torch.load(checkpoint, map_location=self.device)
         self.checkpoint = checkpoint
 
@@ -2526,52 +2765,14 @@ class Trainer(object):
                 else:
                     self.opt.__setattr__(param, torch.nn.Parameter(checkpoint_dict[param].to(self.device)))
                     self.log(f"loaded {param} to opt")
-       
-           
+
+                #print(param, checkpoint_dict[param])
             else:
                 self.log(f"not found {param}")
+        plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall, self.opt.scene_id+"_"+self.opt.sequence_id)
 
+        exit()
 
-
-        '''
-        if "laser_strength" in checkpoint_dict:
-            self.opt.laser_strength = torch.nn.Parameter(checkpoint_dict['laser_strength'].to(self.device))
-            #add laser_strength to optimizer
-            self.optimizer.add_param_group({'params': self.opt.laser_strength, 'lr': self.opt.lr *  0.1})
-            print("laser_strength loaded")
-
-
-        if "z_offsets" in checkpoint_dict:
-            self.opt.z_offsets = torch.nn.Parameter(checkpoint_dict['z_offsets'].to(self.device))
-            self.optimizer.add_param_group({'params': self.opt.z_offsets, 'lr': self.opt.lr *  0.001})
-
-            print("z_offsets loaded")
-
-        if "fov_lidar" in checkpoint_dict:
-            self.opt.fov_lidar = torch.nn.Parameter(checkpoint_dict['fov_lidar'].to(self.device))
-            print("fov_lidar loaded")
-            self.optimizer.add_param_group({'params': self.opt.fov_lidar, 'lr': self.opt.lr *  0.001})
-
-        if "laser_offsets" in checkpoint_dict:
-            self.opt.laser_offsets = torch.nn.Parameter(checkpoint_dict['laser_offsets'].to(self.device))
-            print("laser_offsets loaded")
-            self.optimizer.add_param_group({'params': self.opt.laser_offsets, 'lr': self.opt.lr *  0.001})
-
-        if "velocity" in checkpoint_dict:
-            self.velocity = torch.nn.Parameter(checkpoint_dict['velocity'].to(self.device))
-            self.optimizer.add_param_group({'params': self.velocity, 'lr': self.opt.lr *  0.001})
-            print("velocity loaded")
-
-        if "R" in checkpoint_dict:
-            self.opt.R = torch.nn.Parameter(checkpoint_dict['R'].to(self.device))
-            self.optimizer.add_param_group({'params': self.opt.R, 'lr': self.opt.lr *  0.001})
-            print("R loaded with lr ", self.opt.lr, 0.001)
-
-        if "T" in checkpoint_dict:
-            self.opt.T = torch.nn.Parameter(checkpoint_dict['T'].to(self.device))
-            self.optimizer.add_param_group({'params': self.opt.T, 'lr': self.opt.lr *  0.001})
-            print("T loaded")
-        '''
         if lidar_only:
             return
 

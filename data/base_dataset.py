@@ -12,7 +12,55 @@ def custom_meshgrid(*args):
         return torch.meshgrid(*args, indexing="ij")
 
 
+def get_lidar_rays_simple(intrinsics, H, W, z_offsets, laser_offsets):
+    """
+    Get lidar rays in numpy, without pose transformations or sampling.
 
+    Args:
+        intrinsics: [4], fov_up, fov, fov_up2, fov2
+        H, W: int
+        z_offsets: [2], z offset for up and down
+        laser_offsets: [H], vertical offset for each row
+    Returns:
+        rays_o, rays_d: [H, W, 3] in lidar coordinates
+    """
+
+    i, j = np.meshgrid(np.arange(W, dtype=np.int32), np.arange(H, dtype=np.int32), indexing='xy')
+
+
+    fov_up, fov, fov_up2, fov2 = intrinsics
+
+    beta = -i / W * 2 * np.pi + np.pi
+
+    top_mask = j < (H // 2)
+
+    alpha = np.zeros_like(j, dtype=np.float32)
+
+    
+    laser_offsets_top = np.take(laser_offsets, j[top_mask])
+    laser_offsets_bottom = np.take(laser_offsets, j[~top_mask])
+
+    alpha_top = (fov_up - laser_offsets_top - j[top_mask] / (H // 2) * fov) / 180 * np.pi
+    alpha_bot = (fov_up2 - laser_offsets_bottom - (j[~top_mask] - H // 2) / (H // 2) * fov2) / 180 * np.pi
+
+    alpha[top_mask] = alpha_top
+    alpha[~top_mask] = alpha_bot
+
+    directions = np.stack(
+        [
+            np.cos(alpha) * np.cos(beta),
+            np.cos(alpha) * np.sin(beta),
+            np.sin(alpha),
+        ],
+        axis=-1,
+    )  # [H, W, 3]
+
+
+    rays_o = np.zeros((H, W, 3), dtype=np.float32)
+    rays_o[top_mask, 2] = -z_offsets[0] # z_up
+    rays_o[~top_mask, 2] = -z_offsets[1]  # z_down
+
+    return rays_o, directions
 
 
 @torch.cuda.amp.autocast(enabled=False)

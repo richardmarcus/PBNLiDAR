@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import cv2
+from data.base_dataset import get_lidar_rays_simple
 from utils.convert import lidar_to_pano_with_intensities, compare_lidar_to_pano_with_intensities, lidar_to_pano_with_intensities_and_normals
 from utils.estimate_normals import build_normal_xyz
 
@@ -58,7 +59,7 @@ def LiDAR_2_Pano_KITTI(
     ring_ids = np.concatenate((y_r, y_r2+32))
     spread_laser_offsets = laser_offsets[ring_ids.astype(np.int32)]
 
-    #print(local_points_with_intensities.shape, spread_laser_offsets.shape)
+   # print(local_points_with_intensities.shape, spread_laser_offsets.shape)
     assert local_points_with_intensities.shape[0] == spread_laser_offsets.shape[0]
 
 
@@ -88,6 +89,7 @@ def generate_train_data(
     lidar_paths,
     out_dir,
     points_dim,
+    simple_directions=False,
 ):
     """
     Args:
@@ -111,10 +113,15 @@ def generate_train_data(
 
         mask = distances >0
 
+        if simple_directions:
+            normalized_directions = points
+            normalized_directions[mask] = points[mask] / distances[mask][:, None]
 
-        normalized_directions = points
-        normalized_directions[mask] = points[mask] / distances[mask][:, None]
-  
+        else:
+            origins, directions = get_lidar_rays_simple(
+                intrinsics, H, W, z_offsets, laser_offsets)
+            normalized_directions = directions
+    
 
         cosines = (np.sum(-normalized_directions * normals, axis=2))
  

@@ -114,6 +114,7 @@ def get_arg_parser():
                                                                       "1 means disabled, use [64, 32, 16] to enable, change during training")
     parser.add_argument("--change_patch_size_epoch", type=int, default=2, help="change patch_size intenvel")
     parser.add_argument("--ema_decay", type=float, default=0.95, help="use ema during training")
+    parser.add_argument("--plot_checkpoint", type=bool, default=False, help="plot checkpoint instead of training/testing")
    
     return parser
 
@@ -271,7 +272,7 @@ def main():
         raise RuntimeError("Should not reach here.")
 
     # Logging
-    os.makedirs(opt.workspace, exist_ok=True)
+    #os.makedirs(opt.workspace, exist_ok=True)
     f = os.path.join(opt.workspace, "args.txt")
     with open(f, "w") as file:
         for arg in vars(opt):
@@ -389,12 +390,15 @@ def main():
         opt.near_offset = torch.nn.Parameter(opt.near_offset)
         opt.distance_fall = torch.nn.Parameter(opt.distance_fall)
     else:
-        opt.distance_scale = torch.tensor(0.01).to(device)
-        opt.near_range_threshold = torch.tensor(14.0).to(device)
+        opt.distance_scale = torch.tensor(0.0).to(device)
+        opt.near_range_threshold = torch.tensor(-14.0).to(device)
         opt.near_range_factor = torch.tensor(0.45).to(device)
         opt.near_offset = torch.tensor(2.0).to(device)
+        opt.distance_fall = torch.tensor(1.0).to(device)
+
+        opt.distance_scale = torch.tensor(0.01).to(device)
+        opt.near_range_threshold = torch.tensor(14.0).to(device)
         opt.distance_fall = torch.tensor(5.0).to(device)
-        
 
 
     if opt.test or opt.test_eval or opt.refine:
@@ -410,7 +414,10 @@ def main():
             use_checkpoint=opt.ckpt,
         )
 
-   
+        if opt.plot_checkpoint:
+            trainer.plot_checkpoint()
+            exit()
+    
         if opt.refine: # optimize raydrop only
             refine_loader = NeRFDataset(
                 device=device,
@@ -457,7 +464,7 @@ def main():
         if test_loader.has_gt and not opt.test:
             trainer.evaluate(test_loader)
 
-        #trainer.test(test_loader, write_video=False)
+        trainer.test(test_loader, write_video=False)
 
     else:  # full pipeline
 

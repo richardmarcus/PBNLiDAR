@@ -64,8 +64,8 @@ def get_arg_parser():
     parser.add_argument("--H_lidar", type=int, default=66, help="height of lidar range map")
     parser.add_argument("--W_lidar", type=int, default=1030, help="width of lidar range map")
     parser.add_argument("--experiment_name", type=str, default="lidar4d", help="experiment name")
-
-
+    parser.add_argument("--laser_offsets" , type=float, nargs="*", default=0, help="offset of lasers")
+    
 
     parser.add_argument("--shift_x", type=float, default=0.0, help="translation on x direction (m)")
     parser.add_argument("--shift_y", type=float, default=0.0, help="translation on y direction (m)")
@@ -136,7 +136,7 @@ def _get_frame_ids(sequence_id):
 def _get_camera_rays(sequence_id, opt, device, step=4):
     # For KITTI-360
     kitti_360_root = Path(opt.path) / "KITTI-360"
-    sequence_name = "2013_05_28_drive_0000"
+    sequence_name = "2013_05_28_drive_"+opt.scene_id
     s_frame_id, e_frame_id = _get_frame_ids(sequence_id)
     frame_ids = list(range(s_frame_id, e_frame_id + 1))
     print(f"Simulation using sequence {s_frame_id}-{e_frame_id}")
@@ -264,10 +264,10 @@ def _get_camera_rays(sequence_id, opt, device, step=4):
     return rays_o, rays_d, times_lidar
 
 
-def _get_lidar_rays(sequence_id, opt, device, interpolation):
+def _get_lidar_rays(sequence_id, opt, device, interpolation, cam_poses=False,shift_up=0, shift_down=0):
     # For KITTI-360
     kitti_360_root = Path(opt.path) / "KITTI-360"
-    sequence_name = "2013_05_28_drive_0000"
+    sequence_name = "2013_05_28_drive_"+opt.scene_id
     s_frame_id, e_frame_id = _get_frame_ids(sequence_id)
     frame_ids = list(range(s_frame_id, e_frame_id + 1))
     print(frame_ids)
@@ -277,7 +277,7 @@ def _get_lidar_rays(sequence_id, opt, device, interpolation):
     k3 = KITTI360Loader(kitti_360_root)
 
     # Get lidar2world.
-    lidar2world = k3.load_lidars(sequence_name, frame_ids, interpolation)
+    lidar2world = k3.load_lidars(sequence_name, frame_ids, interpolation, cam_poses=cam_poses)
 
     # Offset and scale
     poses = np.stack(lidar2world, axis=0)
@@ -330,8 +330,8 @@ def _get_lidar_rays(sequence_id, opt, device, interpolation):
     rays_o = rays_o[..., None, :].expand_as(rays_d)  # [B, N, 3]
 
     #already done in main()
-    #rays_o[:H*W, 2] += opt.shift_z
-    #rays_o[H*W:, 2] += opt.shift_z_bottom
+    #rays_o[:H*W, 2] += shift_up * opt.scale
+    #rays_o[H*W:, 2] += shift_down * opt.scale
 
     times_lidar = []
     for frame in frame_ids:
@@ -490,10 +490,10 @@ def main():
             interpolation = opt.interpolation_factor
         else:
             interpolation = None
-        rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation)
+        rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation, cam_poses=False, shift_up=opt.shift_z_top, shift_down=opt.shift_z_bottom)
 
     else:
-        step = 2
+        step = 1
         rays_o, rays_d, times_lidar = _get_camera_rays(opt.sequence_id, opt, device=device, step=step)
         sim.W_lidar = opt.W_lidar // step
         sim.H_lidar = opt.H_lidar // step
@@ -541,11 +541,12 @@ def main():
         if not opt.use_camera:
             top_indices = torch.arange(0, opt.H_lidar//2 * opt.W_lidar).to(device)
             bot_indices = torch.arange(opt.H_lidar//2 * opt.W_lidar, opt.H_lidar * opt.W_lidar).to(device)
-            rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] - opt.shift_z_top * scale
-            rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] - opt.shift_z_bottom* scale
+            rays_o_shift[i,top_indices,2] = rays_o_shift[i,top_indices,2] - opt.shift_z_top* scale
+            rays_o_shift[i,bot_indices,2] = rays_o_shift[i,bot_indices,2] - opt.shift_z_bottom * scale
+            #print(opt.shift_z_top, opt.shift_z_bottom)
 
     # save results
-    sim.render(rays_o_shift, rays_d, times_lidar, save_pc=False)
+    sim.render(rays_o_shift, rays_d, times_lidar, save_pc=False, out_path="/media/oq55olys/chonk/Datasets/kittilike/KITTI-360/data_reco/")
 
 
 if __name__ == "__main__":

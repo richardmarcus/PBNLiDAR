@@ -1,35 +1,5 @@
 #! /bin/bash
 
-
-#if no input args use path = data/kitti360 else use input arg
-if [ $# -eq 0 ]
-then
-    path="data/kitti360"
-    sequence="2350"
-    setting="rolling_shutter"
-    tag="RTopt_fresh"
-    lidar_dim="2"
-    rolling_shutter=""
-    opt_params="R T"
-    lr_factors="0.01 0.01"
-    reflectance_target=0.0
-    exit 0
-else
-    sequence="$1"
-    setting="$2"
-    tag="$3"
-    opt_params="$4"
-    lr_factors="$5"
-    rolling_shutter="$6"
-    lidar_dim="$7"
-    reflectance_target="$8"
-    path="$9""data/kitti360"
-    scene=${10}
-fi
-
-flow="True"
-#flow=""
-
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
 Z_OFFSETS="-0.20287499 -0.12243641"
 
@@ -45,39 +15,21 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 -0.07988049 -0.02726229 -0.00934669  0.09552395  0.0850026  -0.00946006
 -0.05684165  0.0798225   0.10324192  0.08222152"
 
-echo "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$10"
-
-#log_path="combined_log_rfc/" 
-#log_path="/home/oq55olys/Cluster/LiDAR4D/cluster_log_compare_rf/"
-log_path="combined_log_paper/"
-
 CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
---config configs/kitti360_"$sequence"_"$scene".txt \
---workspace "$9"$log_path/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
---experiment_name $tag \
---path $path \
+--config configs/kitti360_1538.txt \
+--workspace log/kitti360_lidar4d_f1538_final_no_motion \
+--experiment_name strength \
 --lr 1e-2 \
 --num_rays_lidar 1024 \
---iters 10000 \
+--iters 20000 \
 --alpha_d 1 \
 --alpha_i 0.1 \
 --alpha_r 0.01 \
 --fov_lidar $FOV_LIDAR \
 --z_offsets $Z_OFFSETS \
 --laser_offsets $laser_offsets \
---eval_interval 200 \
---out_lidar_dim $lidar_dim \
---motion "$rolling_shutter" \
---opt_params $opt_params \
---lr_factors $lr_factors \
---flow_loss "$flow" \
---reflectance_target $reflectance_target \
---test \
-#--refine \
+--eval_interval 100 \
 #--ckpt scratch \
-#--test_eval \
-#--ckpt scratch \
-#--test_eval \
 #--refine \
 #--test_eval \
 #--ckpt scratch \

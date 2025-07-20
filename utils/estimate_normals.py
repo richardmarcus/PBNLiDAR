@@ -1,18 +1,19 @@
 import cv2
 import numpy as np
 import open3d as o3d
-def build_normal_xyz(xyz):
+def build_normal_xyz(xyz,smooth_normals=True, use_o3d=True, replace_o3d=False):
     '''
     @param xyz: ndarray with shape (h,w,3) containing a stagged point cloud
     @param norm_factor: int for the smoothing in Schaar filter
      '''
     
 
-    
-
+  
     x = xyz[...,0]
     y = xyz[...,1]
     z = xyz[...,2]
+
+ 
 
     dists = np.linalg.norm(xyz, axis=2)
     Sxx = cv2.Scharr(x.astype(np.float32), cv2.CV_32FC1, 1, 0)    
@@ -48,12 +49,10 @@ def build_normal_xyz(xyz):
     #select all normals whose neighbors above and below have a distance of less than 0.1
  
     # Apply bilateral filter to smooth normals while preserving edges
-    
 
-    if True: 
+    if smooth_normals: 
 
         gradient_y = np.abs(Sxy) + np.abs(Syy) + np.abs(Szy)
-        
         # Define a threshold to distinguish weak edges
         weak_edge_threshold = 8 # Adjust this value as needed
 
@@ -101,27 +100,45 @@ def build_normal_xyz(xyz):
         normal[:, :, 1] /= n
         normal[:, :, 2] /= n
 
+
+
     # Compute gradient magnitude
     gradient_magnitude = np.sqrt(Sxx**2 + Sxy**2 + Syx**2 + Syy**2 + Szx**2 + Szy**2)
     # Threshold for strong gradients (adjust as needed)
     strong_gradient_threshold = 30
     #convert to point cloud
-    pcd = o3d.geometry.PointCloud()
-    pcd_points = np.reshape(xyz, (-1, 3))
-    pcd_normals =  np.reshape(-xyz, (-1, 3))
-    #pcd_normals = np.reshape(normal, (-1, 3))
+    if use_o3d:
 
-    pcd.points = o3d.utility.Vector3dVector(pcd_points)
-    pcd.normals = o3d.utility.Vector3dVector(pcd_normals)
-    #estimate normals
-    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-    d_normal = np.asarray(pcd.normals)
-    d_normal = np.reshape(d_normal, (xyz.shape[0], xyz.shape[1], 3))
+        pcd = o3d.geometry.PointCloud()
+        pcd_points = np.reshape(xyz, (-1, 3))
+        pcd_normals =  np.reshape(-xyz, (-1, 3))
+        #pcd_normals = np.reshape(normal, (-1, 3))
 
-    # Selectively replace normals based on gradient magnitude
-    mask = gradient_magnitude > strong_gradient_threshold
-    mask = np.logical_and(mask, dists<20)
-    normal[mask] = d_normal[mask]
+        pcd.points = o3d.utility.Vector3dVector(pcd_points)
+        pcd.normals = o3d.utility.Vector3dVector(pcd_normals)
+        #estimate normals
+        pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        d_normal = np.asarray(pcd.normals)
+        d_normal = np.reshape(d_normal, (xyz.shape[0], xyz.shape[1], 3))
+
+        # Selectively replace normals based on gradient magnitude
+        mask = gradient_magnitude > strong_gradient_threshold
+        mask = np.logical_and(mask, dists<20)
+        normal[mask] = d_normal[mask]
+
+    if replace_o3d:
+        pcd = o3d.geometry.PointCloud()
+        pcd_points = np.reshape(xyz, (-1, 3))
+        pcd_normals =  np.reshape(-xyz, (-1, 3))
+        #pcd_normals = np.reshape(normal, (-1, 3))
+
+        pcd.points = o3d.utility.Vector3dVector(pcd_points)
+        pcd.normals = o3d.utility.Vector3dVector(pcd_normals)
+        #estimate normals
+        pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.8, max_nn=200))
+        d_normal = np.asarray(pcd.normals)
+        d_normal = np.reshape(d_normal, (xyz.shape[0], xyz.shape[1], 3))
+        normal = d_normal
 
     
     return normal
