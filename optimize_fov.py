@@ -6,9 +6,9 @@ import os
 from utils.convert import  calculate_ring_ids, compare_lidar_to_pano_with_intensities, compare_lidar_to_pano_with_intensities_torch, lidar_to_pano_with_intensities
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-path= "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/"
+path= "/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/"
 
-path_mc = "/media/oq55olys/chonk/Datasets/kittilike/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data_deskewed/"
+
 
 fov_x = 360
 fov_y = 32
@@ -24,27 +24,6 @@ files = os.listdir(path)
 files.sort()
 
 #initial offsets (to be optimized)
-K = [2.02984126984, 11.0317460317, -8.799812, 16.541]
-z_offsets = [-0.202, -0.121]
-
-#z_offsets = [ 0,0]
-#K = [2, 13, -11, 13]
-K = [ 1.9535843, 11.027419,  -9.015155,  16.532858 ]
-z_offsets = [-0.20289962, -0.1270004 ]
-
-
-'''laser_offsets [ 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04855699
- -0.02581356 -0.00632023  0.00133613  0.05607248  0.00494516  0.00062785
-  0.03141189  0.02682017  0.01036519  0.02891498 -0.01124913  0.04208804
- -0.0218643   0.00743873 -0.01018788 -0.01669445  0.00017374  0.0048293
-  0.03166919  0.03558188  0.01552001 -0.03950449  0.00887087  0.04522041
- -0.04557779  0.01275884  0.02858396  0.06113308  0.03508026 -0.07183428
- -0.10038704  0.02749107  0.0291795  -0.03833354 -0.07382096 -0.14437623
- -0.09460489 -0.0584761   0.01881664 -0.02696179 -0.02052307 -0.15732896
- -0.03719316 -0.00687183  0.07373429  0.03398049  0.04429062 -0.05352834
- -0.07988049 -0.02726229 -0.00934669  0.09552395  0.0850026  -0.00946006
- -0.05684165  0.0798225   0.10324192  0.08222152]'''
-
 
 laser_offsets = [0.0101472, 0.02935141, -0.04524597,  0.04477938, -0.00623795,  0.04855699, 
     -0.02581356, -0.00632023,  0.00133613,  0.05607248,  0.00494516,  0.00062785,
@@ -58,9 +37,7 @@ laser_offsets = [0.0101472, 0.02935141, -0.04524597,  0.04477938, -0.00623795,  
     -0.07988049, -0.02726229, -0.00934669,  0.09552395,  0.0850026,  -0.00946006,
     -0.05684165,  0.0798225,   0.10324192, 0.08222152]
 
-#laser_offsets = np.zeros(64)
-#Optimized K = [ 1.9647572 11.0334425 -8.979475  16.52717  ]
-#Optimized z_offsets = [-0.20287499 -0.12243641]
+
 
 K = [ 1.9647572, 11.0334425, -8.979475,  16.52717 ]
 z_offsets = [-0.20287499, -0.12243641 ]
@@ -87,13 +64,7 @@ for file in files:
         continue
     print(file)
     bin_pcd = np.fromfile(os.path.join(path, file), dtype=np.float32).reshape(-1,4)
-    #bin_pcd = bin_pcd[:, :3]
-   # bin_mc = np.fromfile(os.path.join(path_mc, file), dtype=np.float32).reshape(-1,3)
-    #print mean distance between points from both point clouds
-  #  print(np.linalg.norm(bin_pcd[:, :3] - bin_mc, axis=1).max())
 
-    #overwrite with deskewed
- #   bin_pcd[:, :3] = bin_mc
     y_r = calculate_ring_ids(bin_pcd, ray_res_y)
 
     if y_r.min() != 0:
@@ -113,14 +84,11 @@ for file in files:
     mask = np.logical_and(azimuths >= -np.pi/opt_crop, azimuths <= np.pi/opt_crop)
     mask = np.logical_and(mask, distances <=80)
 
-    #only keep if yr is between 25 and 35
-    #mask2 = np.logical_and(y_r >= 25, y_r <= 35)
-    #mask = np.logical_and(mask, mask2)
+
 
     azimuths = azimuths[mask]
     intensities = intensities[mask]
     weights = 1-np.abs((azimuths/np.pi))
-    #weights = weights*weights
 
 
 
@@ -211,8 +179,7 @@ param_K = torch.tensor(K, dtype=torch.float32, device=device, requires_grad=True
 param_z = torch.tensor(z_offsets, dtype=torch.float32, device=device, requires_grad=True)
 param_laser_offsets_inner= torch.tensor(laser_offsets, dtype=torch.float32, device=device, requires_grad=opt_indivual)
 
-#add 0 to beginning of laser_offsets and to end, make sure that the gradient is not lost
-#param_laser_offsets = torch.cat((torch.tensor([0], dtype=torch.float32, device=device), param_laser_offsets_inner, torch.tensor([0], dtype=torch.float32, device=device)))
+
 
 param_laser_offsets = param_laser_offsets_inner
 
@@ -222,19 +189,19 @@ bin_pcd = torch.tensor(bin_pcd, dtype=torch.float32, device=device)
 def compute_loss(ys_cat, ys_ring_t):
 
     d_y = torch.abs(ys_ring_t - ys_cat +int_off)
-    #d_y*= 2*weights*weights
+
     return d_y.mean(), ys_cat
 
 def compute_loss3(ys_cat, ys_ring_t):
 
     mse = torch.nn.MSELoss()
-    #rmse = torch.sqrt(mse(ys_cat, ys_ring_t))
+
     loss = mse(ys_cat, ys_ring_t)
     return loss, ys_cat
 
 def compute_loss2(ys_cat, ys_ring_t):
 
-    #bad
+ 
     d_y = torch.abs(ys_ring_t - ys_cat)
     ring_ids = ys_ring_t.long()
     sum_dy = torch.zeros(64, device=device)
@@ -243,7 +210,7 @@ def compute_loss2(ys_cat, ys_ring_t):
     sum_dy.index_add_(0, ring_ids, d_y)
     count_dy.index_add_(0, ring_ids, torch.ones_like(d_y))
     ring_mean = sum_dy / (count_dy + 1e-8)
-    #select 90% of closest points
+
     distance = torch.abs(d_y - ring_mean[ring_ids])
     maskr = distance < distance.kthvalue(int(0.1*len(distance)))[0]
     d_y_without_outliers = d_y[maskr]
@@ -260,7 +227,7 @@ def compute_loss4(ys_cat, ys_ring_t):
     sum_dy.index_add_(0, ring_ids, d_y)
     count_dy.index_add_(0, ring_ids, torch.ones_like(d_y))
     ring_mean = sum_dy / (count_dy + 1e-8)
-    #select 90% of closest points
+
     distance = torch.abs(d_y - ring_mean[ring_ids])
     maskr = distance < distance.kthvalue(int(0.5*len(distance)))[0]
     mse_without_outliers = torch.nn.MSELoss()
@@ -277,45 +244,13 @@ optimizer = torch.optim.Adam([param_K, param_z, param_laser_offsets_inner], lr=0
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.7, patience=100, verbose=True)
 
 
-print(opt_steps)
+
 for i in range(opt_steps):
     optimizer.zero_grad()
     spread_laser_offsets = param_laser_offsets[ys_ring_t.long()]
     ys, ys2 = compare_lidar_to_pano_with_intensities_torch(bin_pcd, ray_res_y, ray_res_x, param_K, param_z, ring=False, mask=mask, laser_offsets=spread_laser_offsets)
     ys_cat = torch.cat((ys, ys2 + 32), dim=0)
     loss, opt_ys = compute_loss(ys_cat=ys_cat, ys_ring_t=ys_ring_t)
-
-    if False:
-        d_y =  ys_cat
-        ring_ids = ys_ring_t.long()
-        sum_dy = torch.zeros(64, device=device)
-        count_dy = torch.zeros(64, device=device)
-
-        sum_dy.index_add_(0, ring_ids, d_y)
-        count_dy.index_add_(0, ring_ids, torch.ones_like(d_y))
-        ring_mean = sum_dy / (count_dy + 1e-8)
-
-        inter_ring_delta = torch.abs(ring_mean[:63] - ring_mean[1:64])
-        inter_ring_loss = torch.abs(torch.ones_like(inter_ring_delta) - inter_ring_delta).mean()
-        loss += 0.1*inter_ring_loss 
-        print("Inter ring loss", inter_ring_loss)
-  
-    #loss_all = torch.abs(ys_ring_t.mean() - opt_ys.mean())
-    #loss += loss_all *0.1
-    #z_diff = ((param_z[1] - param_z[0]) - 0.08).abs()
-    #loss += z_diff
-
-    #param_sum = param_laser_offsets.mean()
-    #loss += param_sum.abs() * 0.1
-    #param_abs = param_laser_offsets.abs().mean()
-    #loss += param_abs * .1
-
-   # end_loss = torch.abs(param_laser_offsets[-1])
-    #loss += end_loss * 0.1
-
-    #z_diff = param_z[1] - param_z[0]
-    # Force z_diff to be greater than 0
-    #loss += torch.relu(-z_diff)
 
 
     loss.backward()
@@ -326,7 +261,7 @@ for i in range(opt_steps):
 
     delta_loss = np.abs(cur_loss - loss.detach().cpu().numpy())
     ys = opt_ys.detach().cpu().numpy()
-   # print(param_laser_offsets.mean())
+
 
     #move to cpu 
     cur_loss = loss.detach().cpu().numpy()
@@ -364,7 +299,6 @@ spread_laser_offsets = param_laser_offsets[ys_ring_t.long()]
 ys, ys2 = compare_lidar_to_pano_with_intensities(bin_pcd, ray_res_y, ray_res_x, K, z_offsets, ring=False, mask=mask, laser_offsets=spread_laser_offsets.detach().cpu().numpy(), rids = ys_ring)
 ys = np.concatenate((ys, ys2+32))-int_off
 
-#print(list(zip(ys.tolist(), spread_laser_offsets.tolist())))
 
 
 mean_diff = np.abs(ys_ring - ys).mean()
@@ -401,8 +335,7 @@ for i in range(ray_res_y):
     #set dpi to 1000
     plt.scatter(x_values, (63-ys_masked), c= colors, s=0.1)
     plt.plot(x_values, 63-ys_ring_masked, color="red", linewidth=0.2)
-    #lt.scatter(x_values, 63-ys_ring_masked, c= colors, s=0.1, cmap="plasma")
-    #plt.scatter(x_values,weights[mask]+ys_ring_masked, color="green", s=0.5)
+
     
 
 

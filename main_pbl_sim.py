@@ -11,7 +11,7 @@ from data.preprocess.kitti360_loader import KITTI360Loader
 from model.lidar4d import LiDAR4D
 from model.simulator import Simulator
 from utils.misc import set_seed
-from main_lidar4d import num_frames_from_sequence_id
+from main_pbl import num_frames_from_sequence_id
 
 
 def get_arg_parser():
@@ -60,6 +60,7 @@ def get_arg_parser():
 
     ### simulation
     parser.add_argument("--use_camera", action="store_true", help="use camera for simulation")
+    parser.add_argument("--use_cam_poses", action="store_true", help="use camera poses for lidar rays")
     parser.add_argument("--fov_lidar", type=float, nargs="*", default=[2.0, 13.45, -11.45, 13.45], help="fov up and fov range of lidar")
     parser.add_argument("--H_lidar", type=int, default=66, help="height of lidar range map")
     parser.add_argument("--W_lidar", type=int, default=1030, help="width of lidar range map")
@@ -148,54 +149,6 @@ def _get_camera_rays(sequence_id, opt, device, step=4):
     camera2world_direct, intrinsics, extriniscs, rectification = k3.load_cameras(sequence_name, frame_ids)
 
 
-    #camera2world_direct = k3.load_lidars(sequence_name, frame_ids)
-
-    '''
-
-
-
-    #plot camera2world and camera2world_direct as arrows
-
-    
-
-    plt.figure()
-
-    for i in range(len(camera2world)):
-        origin = camera2world[i][:3, 3]
-        forward = camera2world[i][:3, 0]
-        forward = forward[:2]
-        forward = forward / np.linalg.norm(forward) * 0.4
-        if i == 0:
-            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='b', label='lidar')
-        else:
-            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='b')
-        if i == 10:
-            break
-
-    for i in range(len(camera2world_direct)):
-        origin = camera2world_direct[i][:3, 3]
-        forward = camera2world_direct[i][:3, 0]
-        forward = forward[:2]
-        forward = forward / np.linalg.norm(forward) * 0.4
-        if i == 0:
-            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='r', label='camera')
-        else:
-            plt.quiver(origin[0], origin[1], forward[0], forward[1], angles='xy', scale_units='xy', scale=1, color='r')
-        if i == 10:
-            break
-
-    plt.legend()
-    plt.savefig('plots/camera2world.png')
-    print("Saved plots/camera2world.png")
-    exit()
-    '''
-
-
-
-    #extriniscs are cam to velo transformation
-    #velo_to_cam = (extriniscs)
-    #camera2world = [np.dot(velo_to_cam, cam2world) for cam2world in camera2world]
-
     # Offset and scale
     poses = np.stack(camera2world_direct, axis=0)
     poses[:, :3, -1] = (poses[:, :3, -1] - opt.offset) * opt.scale
@@ -206,9 +159,9 @@ def _get_camera_rays(sequence_id, opt, device, step=4):
     H = opt.H_lidar
     W = opt.W_lidar
     # Allow taking steps in the linspace
-    step_w = step  # Take every 10th point horizontally
-    step_h = step # Take every 10th point vertically
-    
+    step_w = step  
+    step_h = step 
+
     i, j = custom_meshgrid(
         torch.linspace(0, W - 1, W//step_w, device=device), 
         torch.linspace(0, H - 1, H//step_h, device=device),
@@ -221,10 +174,6 @@ def _get_camera_rays(sequence_id, opt, device, step=4):
     j = j.t().reshape([1, new_H * new_W]).expand([B, new_H * new_W])
 
   
-    #get alpha and beta for pinhole camera model, alpha is the vertical angle, beta is the horizontal angle
-    #use H and W for image resolution, intrinsics for focal length and principal point
-    #intrinsics is a 3x3 matrix, [fx, 0, cx; 0, fy, cy; 0, 0, 1]
-
     fx = intrinsics[0, 0]
     fy = intrinsics[1, 1]
     cx = intrinsics[0, 2]  
@@ -329,9 +278,6 @@ def _get_lidar_rays(sequence_id, opt, device, interpolation, cam_poses=False,shi
     rays_o = poses[..., :3, 3]  # [B, 3]
     rays_o = rays_o[..., None, :].expand_as(rays_d)  # [B, N, 3]
 
-    #already done in main()
-    #rays_o[:H*W, 2] += shift_up * opt.scale
-    #rays_o[H*W:, 2] += shift_down * opt.scale
 
     times_lidar = []
     for frame in frame_ids:
@@ -407,8 +353,7 @@ def main():
         density_scale=opt.density_scale,
         active_sensor=opt.active_sensor,
     )
-    # print(model)
-    print(opt)
+
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -419,10 +364,7 @@ def main():
 
     laser_lines = 64
     laser_offsets = torch.zeros(laser_lines)
-
-    
     laser_strength = torch.ones((laser_lines))
-
 
 
     sim = Simulator(
@@ -490,7 +432,7 @@ def main():
             interpolation = opt.interpolation_factor
         else:
             interpolation = None
-        rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation, cam_poses=False, shift_up=opt.shift_z_top, shift_down=opt.shift_z_bottom)
+        rays_o, rays_d, times_lidar = _get_lidar_rays(sequence_id, opt, device=device, interpolation=   interpolation, cam_poses=opt.use_cam_poses, shift_up=opt.shift_z_top, shift_down=opt.shift_z_bottom)
 
     else:
         step = 1
@@ -546,7 +488,7 @@ def main():
             #print(opt.shift_z_top, opt.shift_z_bottom)
 
     # save results
-    sim.render(rays_o_shift, rays_d, times_lidar, save_pc=False, out_path="/media/oq55olys/chonk/Datasets/kittilike/KITTI-360/data_reco/")
+    sim.render(rays_o_shift, rays_d, times_lidar, save_pc=False)
 
 
 if __name__ == "__main__":

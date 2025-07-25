@@ -7,7 +7,7 @@ then
     path="data/kitti360"
     sequence="2350"
     setting="rolling_shutter"
-    tag="RTopt_fresh"
+    tag="fallback_demo"
     lidar_dim="2"
     rolling_shutter=""
     opt_params="R T"
@@ -28,7 +28,6 @@ else
 fi
 
 flow="True"
-#flow=""
 
 FOV_LIDAR="1.9647572 11.0334425 -8.979475  16.52717"
 Z_OFFSETS="-0.20287499 -0.12243641"
@@ -47,11 +46,10 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 
 echo "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$10"
 
-#log_path="combined_log_rfc/" 
-#log_path="/home/oq55olys/Cluster/LiDAR4D/cluster_log_compare_rf/"
-log_path="combined_log_paper/"
 
-CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
+log_path="log"
+
+CUDA_VISIBLE_DEVICES=0 python main_pbl.py \
 --config configs/kitti360_"$sequence"_"$scene".txt \
 --workspace "$9"$log_path/kitti360_lidar4d_f"$sequence"_"$scene"_"$setting" \
 --experiment_name $tag \
@@ -72,22 +70,3 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d.py \
 --lr_factors $lr_factors \
 --flow_loss "$flow" \
 --reflectance_target $reflectance_target \
---test \
-#--refine \
-#--ckpt scratch \
-#--test_eval \
-#--ckpt scratch \
-#--test_eval \
-#--refine \
-#--test_eval \
-#--ckpt scratch \
-#--flow_loss True \
-#--z_offsets -0.5 0.0 \ 
-#--fov_lidar 2.0 13.45 -11.45 13.45 \
-#--num_layers_flow 2 \
-#--hidden_dim_flow 32 \
-#--num_frames 10 \
-#--flow_loss False \
-#--test_eval
-# --refine
-# 

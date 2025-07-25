@@ -17,13 +17,11 @@ laser_offsets=" 0.0101472   0.02935141 -0.04524597  0.04477938 -0.00623795  0.04
 -0.07988049 -0.02726229 -0.00934669  0.09552395  0.0850026  -0.00946006
 -0.05684165  0.0798225   0.10324192  0.08222152"
 
-
-
-sequence_id=$1
-setting="combined_imask_nmask"
-scene_id=$2
-log_path="/home/oq55olys/Cluster/LiDAR4D/cluster_log_dataset/"
-CUDA_VISIBLE_DEVICES=0 python main_lidar4d_sim.py \
+sequence_id="1538"
+setting="combined_imask_nmask_2"
+scene_id="0000"
+log_path="log"
+CUDA_VISIBLE_DEVICES=0 python main_pbl_sim.py \
 --config configs/kitti360_$sequence_id"_"$scene_id.txt \
 --workspace $log_path/kitti360_lidar4d_f$sequence_id"_"$scene_id"_"$setting/simulation \
 --ckpt $log_path/kitti360_lidar4d_f$sequence_id"_"$scene_id"_"$setting/checkpoints/big_improved_ep0400_refine.pth \
@@ -40,15 +38,4 @@ CUDA_VISIBLE_DEVICES=0 python main_lidar4d_sim.py \
 --shift_z_top -0.20287499  \
 --shift_z_bottom -0.12243641 \
 
-
-# -0.382 \
-#--shift_z_bottom -0.121 \
-#--fov_lidar 2.0 13.45 -11.45 13.45 \
-#--num_layers_flow 2 \
-#--hidden_dim_flow 32 \
-# --kitti2nus
-#--workspace log/kitti360_lidar4d_f1538_release/simulation \
-#--ckpt log/kitti360_lidar4d_f1538_release/checkpoints/lidar4d_ep0500_refine.pth \
-#--H_lidar 376 \
-#--W_lidar 1408 \
 

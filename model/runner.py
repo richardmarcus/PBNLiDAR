@@ -1053,20 +1053,13 @@ class Trainer(object):
         # workspace prepare
         self.log_ptr = None
         if self.workspace is not None:
-            os.makedirs(self.workspace, exist_ok=True)
-            #self.log_path = os.path.join(workspace, f"debuglog_{self.name}.txt")
-            workspace_suffix = self.workspace.split("/")[-1]
-            ext_workspace = os.path.join("/home/oq55olys/Projects/neural_rendering/LiDAR4D/combined_log/", workspace_suffix)
-            self.ext_workspace = ext_workspace
-            os.makedirs(ext_workspace, exist_ok=True)
-            self.log_path = os.path.join(ext_workspace, f"debuglog_{self.name}.txt")
+            self.log_path = os.path.join(workspace, f"log_{self.name}.txt")
             self.log_ptr = open(self.log_path, "a+")
 
             self.ckpt_path = os.path.join(self.workspace, "checkpoints")
-            self.ckpt_path_ext = os.path.join(ext_workspace, "checkpoints")
             self.best_path = f"{self.ckpt_path}/{self.name}.pth"
             os.makedirs(self.ckpt_path, exist_ok=True)
-            os.makedirs(self.ckpt_path_ext, exist_ok=True)
+
 
         self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {"fp16" if self.fp16 else "fp32"} | {self.workspace}')
         self.log(f"[INFO] #parameters: {sum([p.numel() for p in model.parameters() if p.requires_grad])}")
@@ -2621,7 +2614,7 @@ class Trainer(object):
             state[param] = getattr(self.opt, param).clone().cpu()
             print("save after refining", param)
 
-        file_path = f"{self.ckpt_path_ext}/{self.name}_ep{self.epoch:04d}_refine.pth"
+        file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}_refine.pth"
         torch.save(state, file_path)
 
 
@@ -2671,12 +2664,6 @@ class Trainer(object):
             "stats": self.stats,
         }
 
-            #"laser_strength": self.opt.laser_strength.detach().cpu(),
-            #"laser_offsets": self.opt.laser_offsets.detach().cpu(),
-            #"z_offsets": self.opt.z_offsets.detach().cpu(),
-            #"fov_lidar": self.opt.fov_lidar.detach().cpu(),
-            #"R": self.opt.R.detach().cpu(),
-            #"T": self.opt.T.detach().cpu()
 
         for param in self.opt.opt_params:
             state[param] = getattr(self.opt, param).clone().cpu()

@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it using the following metadata."
+title: "Physically Based Neural LiDAR Resimulation"
+authors:
+  - family-names: Marcus
+    given-names: Richard
+    orcid: https://orcid.org/0000-0002-6601-6457
+  - family-names: Stamminger
+    given-names: Marc
+    orcid: https://orcid.org/0000-0001-8699-3442
+date-released: 2025-07-24
+doi: 10.48550/arXiv.2507.12489
+url: https://arxiv.org/abs/2507.12489
+type: article
+repository-code: https://arxiv.org/abs/2507.12489
+license: "Other"
+version: "1"

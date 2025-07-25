@@ -3,20 +3,8 @@ import numpy as np
 import cv2
 
 FOV_LIDAR = [1.9647572, 11.0334425, -8.979475, 16.52717]
-
-#FOV_LIDAR = [1.9647572, 11.0334425, 1.9647572-11.0334425, 11.0334425]
-
-#FOV_LIDAR = [1.9647572, 16.52717,  1.9647572-16.52717, 16.52717]
-
-#FOV_LIDAR = [2.0, 13.45, 2.0-13.45, 13.45]
-
 Z_OFFSETS = [-0.20287499, -0.12243641]
 
-#Z_OFFSETS = [-0.20287499, -0.20287499]
-
-#Z_OFFSETS = [ -0.12243641, -0.12243641]
-
-#Z_OFFSETS = [0, 0]
 
 laser_offsets = [
     0.0101472, 0.02935141, -0.04524597, 0.04477938, -0.00623795, 0.04855699,
@@ -34,8 +22,8 @@ laser_offsets = [
 
 
 
-pcd_path = "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/0000000200.bin"
-pcd_path_deskewed = "/home/oq55olys/Projects/neural_rendering/LiDAR4D/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data_deskewed/0000000200.bin"
+pcd_path = "/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/0000000200.bin"
+pcd_path_deskewed = "/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data_deskewed/0000000200.bin"
 out_path = "debug_proj.png"
 
 def lidar_to_pano_with_intensities_half_y_coord(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True, ring=True, mask=None, laser_offsets=None, rids = None):
