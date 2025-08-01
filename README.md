@@ -62,26 +62,16 @@ This could be used for image2image translation between the camera and the LiDAR.
 [The dataset is available via Zenodo.](https://zenodo.org/records/16685170) and consists of more than 10k frames.
 Beyond the mentioned modalities and the combined intensity, we include our computed incidence maps, raydrop output from the NeRF, and (instance) segmentation maps from KITTI-360.
 
-
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-    <div>
-        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0000.png" width=100%>
-        <p align="center"><i>Reference Camera Image</i></p>
-    </div>
-    <div>
-        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0003.png" width=100%>
-        <p align="center"><i>Depth Map</i></p>
-    </div>
-    <div>
-        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0002.png" width=100%>
-        <p align="center"><i>Albedo Intensity</i></p>
-    </div>
-    <div>
-        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0001_grey.png" width=100%>
-        <p align="center"><i>Reflectivity Map</i></p>
-    </div>
-</div>
-
+<table>
+<tr>
+<td><img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0000.png" width="100%"><p align="center"><i>Reference Camera Image</i></p></td>
+<td><img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0003.png" width="100%"><p align="center"><i>Depth Map</i></p></td>
+</tr>
+<tr>
+<td><img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0002.png" width="100%"><p align="center"><i>Albedo Intensity</i></p></td>
+<td><img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0001_grey.png" width="100%"><p align="center"><i>Reflectivity Map</i></p></td>
+</tr>
+</table>
 
 
 ## Getting started
