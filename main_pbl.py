@@ -272,7 +272,7 @@ def main():
         raise RuntimeError("Should not reach here.")
 
     # Logging
-    #os.makedirs(opt.workspace, exist_ok=True)
+    os.makedirs(opt.workspace, exist_ok=True)
     f = os.path.join(opt.workspace, "args.txt")
     with open(f, "w") as file:
         for arg in vars(opt):

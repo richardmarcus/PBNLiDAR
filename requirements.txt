@@ -1,6 +1,6 @@
 tqdm
 rich
-numpy
+numpy==1.26.4
 scipy
 lpips
 packaging
@@ -15,3 +15,4 @@ imageio==2.13.0
 imageio-ffmpeg==0.4.8
 pyquaternion
 camtools
+

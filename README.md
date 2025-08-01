@@ -1,11 +1,10 @@
 
-This repository is the official PyTorch implementation for Physical Based Neural LiDAR Resimulation.
+This repository is the official PyTorch implementation for the paper Physical Based Neural LiDAR Resimulation accepted at [IEE ITSC 2025](https://ieee-itsc.org/2025/) (WIP).
 
 
 
 ## Abstract
 Methods for Novel View Synthesis (NVS) have recently found traction in the field of LiDAR simulation and large-scale 3D scene reconstruction. While solutions for faster rendering or handling dynamic scenes have been proposed, LiDAR specific effects remain insufficiently addressed. By explicitly modeling sensor characteristics such as rolling shutter, laser power variations, and intensity falloff, our method achieves more accurate LiDAR simulation compared to existing techniques. We demonstrate the effectiveness of our approach through quantitative and qualitative comparisons with state-of-the-art methods, as well as ablation studies that highlight the importance of each sensor model component. Beyond that, we show that our approach exhibits advanced resimulation capabilities, such as generating high resolution LiDAR scans in the camera perspective
-
 
 
 
@@ -33,23 +32,29 @@ conda activate pbl
 
 # PyTorch
 # CUDA 12.1
-pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+#pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
 # CUDA 11.8
-# pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
+ pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
 # CUDA <= 11.7
 # pip install torch==2.0.0 torchvision torchaudio
 
 # Dependencies
 pip install -r requirements.txt
+pip install "git+https://github.com/facebookresearch/pytorch3d.git"
 
 # Local compile for tiny-cuda-nn
 git clone --recursive https://github.com/nvlabs/tiny-cuda-nn
 cd tiny-cuda-nn/bindings/torch
 python setup.py install
 
+# navigate back to root dir
+cd -
+
 # compile packages in utils
 cd utils/chamfer3D
 python setup.py install
+cd -
+
 ```
 
 
@@ -77,7 +82,6 @@ Next, run KITTI-360 dataset preprocessing: (set `DATASET` and `SEQ_ID`)
 ```bash
 bash preprocess_data.sh
 ```
-
 After preprocessing, your folder structure should look like this:  
 
 ```bash
@@ -117,7 +121,7 @@ bash run_kitti_pbl_sim_cam.sh
 The results will be saved in the workspace folder.
 
 
-## Citation
+## Citation ([Arxive Postprint](https://arxiv.org/abs/2507.12489))
 
 ```
 
