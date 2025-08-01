@@ -1,10 +1,12 @@
 
-This repository is the official PyTorch implementation for the paper Physically Based Neural LiDAR Resimulation accepted at [IEE ITSC 2025](https://ieee-itsc.org/2025/).
+This repository is the official PyTorch implementation for the paper [Physically Based Neural LiDAR Resimulation](https://arxiv.org/abs/2507.12489) accepted at [IEE ITSC 2025](https://ieee-itsc.org/2025/).
 
 
 
 ## Abstract
 Methods for Novel View Synthesis (NVS) have recently found traction in the field of LiDAR simulation and large-scale 3D scene reconstruction. While solutions for faster rendering or handling dynamic scenes have been proposed, LiDAR specific effects remain insufficiently addressed. By explicitly modeling sensor characteristics such as rolling shutter, laser power variations, and intensity falloff, our method achieves more accurate LiDAR simulation compared to existing techniques. We demonstrate the effectiveness of our approach through quantitative and qualitative comparisons with state-of-the-art methods, as well as ablation studies that highlight the importance of each sensor model component. Beyond that, we show that our approach exhibits advanced resimulation capabilities, such as generating high resolution LiDAR scans in the camera perspective.
+
+
 
 
 ## Table of Contents
