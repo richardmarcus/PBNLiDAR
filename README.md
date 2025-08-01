@@ -55,6 +55,12 @@ For intensity, we notice invalid measurements, for which we create a special mas
 
 <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/advanced_intensity_mask.png" width=65%>
 
+This avoids reproduction of the invalid areas after training:
+
+
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/intensity_prediction2.png" width=65%>
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/intensity_prediction.png" width=65%>
+
 ## HD LiDAR Reconstruction
 For more details regarding the Physically Based LiDAR pipeline, please refer to the paper.
 One interesting use case, however, is the possibility to generate a high resolution reconstruction of the LiDAR return in the camera perspective.
