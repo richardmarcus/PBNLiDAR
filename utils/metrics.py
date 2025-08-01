@@ -127,9 +127,6 @@ class IntensityMeter:
         )  # [B, N, 3] or [B, H, W, 3], range[0, 1]
 
         #write first pred and truth with cv2
-        cv2.imwrite("pred.png", preds[0]*255)
-        cv2.imwrite("truth.png", truths[0]*255)
-        print("pred and truth saved")
         # simplified since max_pixel_value is 1 here.
         intensity_error = self.compute_intensity_errors(truths, preds)
 

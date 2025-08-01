@@ -22,9 +22,7 @@ laser_offsets = [
 
 
 
-pcd_path = "/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/0000000200.bin"
-pcd_path_deskewed = "/data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data_deskewed/0000000200.bin"
-out_path = "debug_proj.png"
+pcd_path = "./data/kitti360/KITTI-360/data_3d_raw/2013_05_28_drive_0000_sync/velodyne_points/data/0000000200.bin"
 
 def lidar_to_pano_with_intensities_half_y_coord(local_points_with_intensities, lidar_H, lidar_W, fov, fov_down, max_depth=80, z_off=0, bot = False, double = True, ring=True, mask=None, laser_offsets=None, rids = None):
 
@@ -53,16 +51,12 @@ def lidar_to_pano_with_intensities_half_y_coord(local_points_with_intensities, l
 
             
     if mask is None:
-        #print("careful")
         mask = (r >= 0) & (r < lidar_H)
-    #    mask = (y_r < lidar_H) & (y_r >= 0)
+
 
     
     r = r[mask]
 
-    #print(rids, mask)
-
-    
     return r
 
 def compare_lidar_to_pano_with_intensities(
@@ -167,7 +161,7 @@ def lidar_to_pano_with_intensities_half(local_points_with_intensities, lidar_H, 
     dists = dists[mask]
     local_point_intensities = local_point_intensities[mask]
 
-        # Initialize pano and intensity maps
+    # Initialize pano and intensity maps
     pano = np.zeros((lidar_H, lidar_W), dtype=np.float64)
     intensities = np.zeros((lidar_H, lidar_W), dtype=np.float32)
 
@@ -244,12 +238,6 @@ def LiDAR_2_Pano_KITTI(
 #main function to test the conversion
 if __name__ == "__main__":
     points = np.fromfile(pcd_path, dtype=np.float32).reshape(-1, 4)
-    points_deskewed = np.fromfile(pcd_path_deskewed, dtype=np.float32).reshape(-1, 3)
-
-    #points[:,:3] = points_deskewed[:, :3]  # Use deskewed points for testing
-    
-    #set all laser_offsets to 0 for testing
-
 
     #H should be 64, > 64 uses dummy offsets, <64 uses 0 for offsets
     range_view =  LiDAR_2_Pano_KITTI(points,
@@ -261,6 +249,7 @@ if __name__ == "__main__":
                                     max_depth=80.0,
                                     use_offsets=False)
     
-    # Save the range view as an image
-    cv2.imwrite(out_path, (range_view[:, :, 1]*255).astype(np.uint8))
-    print(f"Range view saved to {out_path}")
+    #imshow
+    cv2.imshow("range_view", range_view)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()

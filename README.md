@@ -1,20 +1,87 @@
 
-This repository is the official PyTorch implementation for the paper Physical Based Neural LiDAR Resimulation accepted at [IEE ITSC 2025](https://ieee-itsc.org/2025/) (WIP).
+This repository is the official PyTorch implementation for the paper Physically Based Neural LiDAR Resimulation accepted at [IEE ITSC 2025](https://ieee-itsc.org/2025/).
 
 
 
 ## Abstract
-Methods for Novel View Synthesis (NVS) have recently found traction in the field of LiDAR simulation and large-scale 3D scene reconstruction. While solutions for faster rendering or handling dynamic scenes have been proposed, LiDAR specific effects remain insufficiently addressed. By explicitly modeling sensor characteristics such as rolling shutter, laser power variations, and intensity falloff, our method achieves more accurate LiDAR simulation compared to existing techniques. We demonstrate the effectiveness of our approach through quantitative and qualitative comparisons with state-of-the-art methods, as well as ablation studies that highlight the importance of each sensor model component. Beyond that, we show that our approach exhibits advanced resimulation capabilities, such as generating high resolution LiDAR scans in the camera perspective
+Methods for Novel View Synthesis (NVS) have recently found traction in the field of LiDAR simulation and large-scale 3D scene reconstruction. While solutions for faster rendering or handling dynamic scenes have been proposed, LiDAR specific effects remain insufficiently addressed. By explicitly modeling sensor characteristics such as rolling shutter, laser power variations, and intensity falloff, our method achieves more accurate LiDAR simulation compared to existing techniques. We demonstrate the effectiveness of our approach through quantitative and qualitative comparisons with state-of-the-art methods, as well as ablation studies that highlight the importance of each sensor model component. Beyond that, we show that our approach exhibits advanced resimulation capabilities, such as generating high resolution LiDAR scans in the camera perspective.
 
+
+## Table of Contents
+We first provide general interesting conclusions from our paper, including an upscaled LiDAR dataset and then give instructions how to set up our system.
+- [Improved LiDAR Intrinsics](#improved-lidar-intrinsics)
+- [Improved Masking](#improved-masking)
+- [HD LiDAR Reconstruction](#hd-lidar-reconstruction)
+- [Getting started](#getting-started)
+    - [🛠️ Installation](#️-installation)
+    - [📁 Dataset](#-dataset)
+- [Training](#training)
+- [Simulation](#simulation)
+- [Citation](#citation)
+- [Acknowledgement](#acknowledgement)
+- [License](#license)
 
 
 ## Improved LiDAR Intrinsics
+One contribution of our paper is the reconstruction of the correct LiDAR intrinsics. This can also be helpful for other tasks that use range-view panoramic images.
+
+
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/laser_offsets3.png" width=65%>
+<p align="left"><i>Visualization of laser pattern for Velodyne HDL-64E: two optical centers with different FOVs.</i></p>
+
+We have added our reconstructed parameters in intrinsics.json and a standalone script to showcase their use to perform the projection task:
+```bash
+python debug_dual_projection.py
+```
+
+With these, there are no longer gaps in the projection, see raydrop masks below.
+
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/gt_mask_old.png" width=65%>
+<p align="left"><i>Raydrop mask used in previous work</i></p>
+
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/gt_mask.png" width=65%>
+<p align="left"><i>Improved raydrop mask</i></p>
+
 
 
 ## Improved Masking
+This further allows our system to only predict actual ray misses by constructing a statistical global raydrop mask that only includes ego vehicle occlusion:
 
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/advanced_mask.png" width=65%>
+
+For intensity, we notice invalid measurements, for which we create a special mask.
+
+<img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/advanced_intensity_mask.png" width=65%>
 
 ## HD LiDAR Reconstruction
+For more details regarding the Physically Based LiDAR pipeline, please refer to the paper.
+One interesting use case, however, is the possibility to generate a high resolution reconstruction of the LiDAR return in the camera perspective.
+Thereby, we also separate the raw intensity output into a base "albedo" intensity and a reflectivity map.
+This could be used for image2image translation between the camera and the LiDAR.
+
+[The dataset is available via Zenodo.](https://zenodo.org/records/16685170) and consists of more than 10k frames.
+Beyond the mentioned modalities and the combined intensity, we include our computed incidence maps, raydrop output from the NeRF, and (instance) segmentation maps from KITTI-360.
+
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+    <div>
+        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0000.png" width=100%>
+        <p align="center"><i>Reference Camera Image</i></p>
+    </div>
+    <div>
+        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0003.png" width=100%>
+        <p align="center"><i>Depth Map</i></p>
+    </div>
+    <div>
+        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0002.png" width=100%>
+        <p align="center"><i>Albedo Intensity</i></p>
+    </div>
+    <div>
+        <img src="https://github.com/richardmarcus/PBNLiDAR/releases/download/v1.0.0/lidar4d_0304_0001_grey.png" width=100%>
+        <p align="center"><i>Reflectivity Map</i></p>
+    </div>
+</div>
+
 
 
 ## Getting started
