@@ -12,6 +12,4 @@ date-released: 2025-07-24
 doi: 10.48550/arXiv.2507.12489
 url: https://arxiv.org/abs/2507.12489
 type: article
-repository-code: https://arxiv.org/abs/2507.12489
-license: "Other"
-version: "1"
+version: "1.0"
