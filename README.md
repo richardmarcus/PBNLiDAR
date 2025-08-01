@@ -15,8 +15,8 @@ We first provide general interesting conclusions from our paper, including an up
 - [Getting started](#getting-started)
     - [🛠️ Installation](#️-installation)
     - [📁 Dataset](#-dataset)
-- [Training](#training)
-- [Simulation](#simulation)
+    - [Training](#training)
+    - [Simulation](#simulation)
 - [Citation](#citation)
 - [Acknowledgement](#acknowledgement)
 - [License](#license)
@@ -174,7 +174,7 @@ The following script uses an example configruation for run_kitti_pbl.sh
 bash train_scene.sh
 ```
 
-## Simulation
+### Simulation
 After reconstruction, you can use the simulator to render and manipulate LiDAR point clouds in the whole scenario. It supports dynamic scene re-play, novel LiDAR configurations (`--fov_lidar`, `--H_lidar`, `--W_lidar`) and novel trajectory (`--shift_x`, `--shift_y`, `--shift_z`).  
 
 We provide simulation scripts for the base config and HD camera rays to get high resolution output(run_kitti_pbl_sim_lidar.sh and run_kitti_pbl_sim_cam.sh).
