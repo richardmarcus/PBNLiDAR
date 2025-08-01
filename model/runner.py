@@ -2077,7 +2077,7 @@ class Trainer(object):
                         metric.update(preds_depth*dropmask, gt_depth)
 
                 save_path_pred = os.path.join(
-                    self.ext_workspace,
+                    self.workspace,
                     "validation",
                     f"{name}_{self.local_step:04d}.png",
                 )
@@ -2560,7 +2560,7 @@ class Trainer(object):
 
         loss_total = []
 
-        refine_bs = 24 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
+        refine_bs = 16 # set smaller batch size (e.g. 32) if OOM and adjust epochs accordingly
         refine_epoch = 1000
 
         optimizer = torch.optim.Adam(self.model.unet.parameters(), lr=0.001, weight_decay=0)
@@ -2756,9 +2756,7 @@ class Trainer(object):
                 #print(param, checkpoint_dict[param])
             else:
                 self.log(f"not found {param}")
-        plot_distance_normalization(self.opt.near_range_threshold, self.opt.near_range_factor, self.opt.distance_scale, self.opt.near_offset, self.opt.distance_fall, self.opt.scene_id+"_"+self.opt.sequence_id)
 
-        exit()
 
         if lidar_only:
             return

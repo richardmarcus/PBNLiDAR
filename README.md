@@ -17,7 +17,6 @@ Methods for Novel View Synthesis (NVS) have recently found traction in the field
 ## HD LiDAR Reconstruction
 
 
-
 ## Getting started
 
 
@@ -121,7 +120,7 @@ bash run_kitti_pbl_sim_cam.sh
 The results will be saved in the workspace folder.
 
 
-## Citation ([Arxive Postprint](https://arxiv.org/abs/2507.12489))
+## Citation ([arXive Postprint](https://arxiv.org/abs/2507.12489))
 
 ```
 
